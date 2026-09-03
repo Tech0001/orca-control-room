@@ -1,6 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { refreshBoundTerminalScreens } from '../companion/screen-cache.mjs'
+import {
+  mergeTerminalHistory,
+  refreshBoundTerminalScreens
+} from '../companion/screen-cache.mjs'
 
 const terminal = {
   stableId: '/work/agent-Lyra\u0000tab-1',
@@ -22,8 +25,41 @@ test('re-reads visible screens when Orca activity metadata does not change', asy
   await refreshBoundTerminalScreens([{ terminal }], cache, readScreen, { now: () => clock++ })
 
   assert.equal(reads, 2)
-  assert.deepEqual(cache.get(terminal.stableId).lines, ['frame 2'])
+  assert.deepEqual(cache.get(terminal.stableId).lines, ['frame 1', 'frame 2'])
   assert.equal(cache.get(terminal.stableId).changedAt, 101)
+})
+
+test('keeps earlier terminal rows when a post-send frame becomes shorter', () => {
+  assert.deepEqual(
+    mergeTerminalHistory(
+      ['earlier reply', 'recent reply', 'prompt'],
+      ['earlier reply', 'recent reply', 'prompt'],
+      ['recent reply', 'prompt']
+    ),
+    ['earlier reply', 'recent reply', 'prompt']
+  )
+})
+
+test('appends only new rows when the terminal viewport advances', () => {
+  assert.deepEqual(
+    mergeTerminalHistory(
+      ['one', 'two', 'three'],
+      ['one', 'two', 'three'],
+      ['two', 'three', 'four']
+    ),
+    ['one', 'two', 'three', 'four']
+  )
+})
+
+test('retains the old frame while adding changed redraw rows', () => {
+  assert.deepEqual(
+    mergeTerminalHistory(
+      ['answer', 'working 1'],
+      ['answer', 'working 1'],
+      ['answer', 'working 2']
+    ),
+    ['answer', 'working 1', 'working 2']
+  )
 })
 
 test('keeps the last readable frame while a screen read is retrying', async () => {

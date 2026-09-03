@@ -5,6 +5,7 @@ const token = params.get('token') || 'development-only-token'
 const grid = document.querySelector('#grid')
 const empty = document.querySelector('#empty')
 const connection = document.querySelector('#connection')
+const appVersion = document.querySelector('#app-version')
 const managerDialog = document.querySelector('#manager-dialog')
 const transcriptDialog = document.querySelector('#transcript-dialog')
 const laneTemplate = document.querySelector('#lane-template')
@@ -177,6 +178,8 @@ function updateCard(card, lane) {
 
 function renderState(state) {
   latestState = state
+  appVersion.textContent = state.version ? `v${state.version}` : 'Backend restart required'
+  appVersion.classList.toggle('stale', !state.version)
   document.documentElement.style.setProperty('--columns', String(state.config.columns))
   empty.hidden = state.lanes.length > 0
   grid.hidden = state.lanes.length === 0

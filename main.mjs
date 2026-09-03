@@ -4,6 +4,7 @@ import { access, mkdir, readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { CONTROL_ROOM_VERSION } from './version.mjs'
 
 const pluginRoot = dirname(fileURLToPath(import.meta.url))
 const serverEntry = join(pluginRoot, 'companion', 'server.mjs')
@@ -29,17 +30,41 @@ async function readSession() {
   return null
 }
 
-async function isHealthy(session) {
-  if (!session) return false
+async function readHealth(session) {
+  if (!session) return null
   try {
     const response = await fetch(`http://127.0.0.1:${session.port}/api/health`, {
       headers: { 'x-control-room-token': session.token },
       signal: AbortSignal.timeout(750)
     })
-    return response.ok
+    if (!response.ok) return null
+    const health = await response.json()
+    return health?.ok === true ? health : null
   } catch {
-    return false
+    return null
   }
+}
+
+async function isHealthy(session) {
+  return (await readHealth(session))?.version === CONTROL_ROOM_VERSION
+}
+
+async function stopObsoleteCompanion(session) {
+  const health = await readHealth(session)
+  if (!health || health.version === CONTROL_ROOM_VERSION) return
+  const pid = Number.isInteger(health.pid) ? health.pid : session?.pid
+  if (!Number.isInteger(pid) || pid < 2) return
+  try {
+    process.kill(pid, 'SIGTERM')
+  } catch {
+    return
+  }
+  const deadline = Date.now() + 3_000
+  while (Date.now() < deadline) {
+    if (!(await readHealth(session))) return
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  throw new Error('Outdated Control Room companion did not stop')
 }
 
 async function waitForServer(session) {
@@ -86,6 +111,7 @@ async function openWindow(url) {
 async function ensureCompanion() {
   const existing = await readSession()
   if (await isHealthy(existing)) return existing
+  await stopObsoleteCompanion(existing)
 
   await access(serverEntry)
   await mkdir(stateDirectory, { recursive: true })

@@ -15,12 +15,14 @@ the primary view.
   parked and nonfocused panes.
 - Adds terminal-style highlighting to the plain-text terminal data exposed by Orca's public CLI.
 - Preserves the last readable frame during transient failures and flags the lane while retrying.
+- Keeps a bounded rolling lane history so short post-send frames cannot collapse the scrollbar.
 - Preserves reading position and offers a **New output** jump when a lane changes above the fold.
 - Opens retained terminal history on demand.
 - Confirms accepted messages and displays delivery failures without clearing the unsent draft.
 - Sends a message or jumps directly to the native Orca terminal.
 - Persists lane names, strategist/manager roles, order, and column count.
 - Binds only to `127.0.0.1` and protects its local API with a random session token.
+- Replaces an outdated companion automatically when a newer plugin version opens.
 
 ## Install as a development plugin
 

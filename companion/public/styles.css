@@ -89,6 +89,10 @@ h1 {
   font-size: 10px;
 }
 
+.app-version.stale {
+  color: var(--danger);
+}
+
 .eyebrow {
   color: var(--muted);
   font-size: 10px;

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { bindLane, enrichTerminal, normalizeConfig } from './model.mjs'
 import { OrcaClient } from './orca-client.mjs'
 import { refreshBoundTerminalScreens } from './screen-cache.mjs'
+import { CONTROL_ROOM_VERSION } from '../version.mjs'
 
 const root = dirname(fileURLToPath(import.meta.url))
 const publicRoot = join(root, 'public')
@@ -80,6 +81,7 @@ async function buildState(force = false) {
   })
   return {
     connected: true,
+    version: CONTROL_ROOM_VERSION,
     updatedAt: Date.now(),
     config,
     lanes: bound.map(({ lane, terminal }) => ({
@@ -166,7 +168,11 @@ const server = createServer(async (request, response) => {
       if (!authorized(request)) return json(response, 401, { error: 'Unauthorized' })
       lastClientAt = Date.now()
       if (request.method === 'GET' && url.pathname === '/api/health') {
-        return json(response, 200, { ok: true })
+        return json(response, 200, {
+          ok: true,
+          version: CONTROL_ROOM_VERSION,
+          pid: process.pid
+        })
       }
       if (request.method === 'GET' && url.pathname === '/api/state') {
         return json(response, 200, await buildState(url.searchParams.get('force') === '1'))
@@ -212,9 +218,16 @@ const server = createServer(async (request, response) => {
 
 await readConfig()
 await mkdir(stateDirectory, { recursive: true })
-await writeFile(sessionFile, `${JSON.stringify({ port, token: sessionToken, pid: process.pid })}\n`, {
-  mode: 0o600
-})
+await writeFile(
+  sessionFile,
+  `${JSON.stringify({
+    port,
+    token: sessionToken,
+    pid: process.pid,
+    version: CONTROL_ROOM_VERSION
+  })}\n`,
+  { mode: 0o600 }
+)
 
 server.listen(port, '127.0.0.1')
 
