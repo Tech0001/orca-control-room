@@ -23,11 +23,29 @@ export class OrcaClient {
   }
 
   async run(args, timeout = 20_000) {
-    const { stdout } = await execFileAsync(this.command, [...args, '--json'], {
-      timeout,
-      maxBuffer: MAX_BUFFER_BYTES,
-      windowsHide: true
-    })
+    let stdout
+    try {
+      ;({ stdout } = await execFileAsync(this.command, [...args, '--json'], {
+        timeout,
+        maxBuffer: MAX_BUFFER_BYTES,
+        windowsHide: true
+      }))
+    } catch (error) {
+      const failedStdout =
+        error && typeof error === 'object' && 'stdout' in error ? String(error.stdout) : ''
+      if (!failedStdout.trim()) throw error
+
+      let failedResponse
+      try {
+        failedResponse = parseJsonOutput(failedStdout)
+      } catch {
+        throw error
+      }
+      if (!failedResponse.ok) {
+        throw new Error(failedResponse.error?.message || 'Orca CLI request failed')
+      }
+      return failedResponse.result
+    }
     const response = parseJsonOutput(stdout)
     if (!response.ok) throw new Error(response.error?.message || 'Orca CLI request failed')
     return response.result
@@ -49,6 +67,18 @@ export class OrcaClient {
     return result.terminal
   }
 
+  async readLive(handle, limit = 240) {
+    const result = await this.run([
+      'terminal',
+      'read',
+      '--terminal',
+      handle,
+      '--limit',
+      String(limit)
+    ])
+    return result.terminal
+  }
+
   async readTranscript(handle, limit = 2_000) {
     const result = await this.run([
       'terminal',
@@ -62,7 +92,24 @@ export class OrcaClient {
   }
 
   async send(handle, text) {
-    return await this.run(['terminal', 'send', '--terminal', handle, '--text', text, '--enter'])
+    const result = await this.run([
+      'terminal',
+      'send',
+      '--terminal',
+      handle,
+      '--text',
+      text,
+      '--enter'
+    ])
+    if (result.send?.accepted !== true) {
+      const reason = result.send?.refusedReason
+        ? ' (' + result.send.refusedReason + ')'
+        : result.send?.agentSessionRefusal
+          ? ' (agent session is owned by another client)'
+          : ''
+      throw new Error('Orca refused the terminal message' + reason)
+    }
+    return result.send
   }
 
   async switchTo(handle) {

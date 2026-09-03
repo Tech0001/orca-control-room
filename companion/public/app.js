@@ -34,6 +34,12 @@ function roleLabel(role) {
   return 'Department manager'
 }
 
+function setSendStatus(card, message, tone = '') {
+  clearTimeout(card.sendStatusTimer)
+  card.sendStatus.textContent = message
+  card.sendStatus.className = 'send-status' + (tone ? ' ' + tone : '')
+}
+
 function isNearBottom(element) {
   return element.scrollHeight - element.scrollTop - element.clientHeight < 18
 }
@@ -71,7 +77,9 @@ function createCard(lane) {
     unread: node.querySelector('.unread'),
     composer: node.querySelector('.composer'),
     input: node.querySelector('.composer input'),
-    screenText: null
+    sendStatus: node.querySelector('.send-status'),
+    screenText: null,
+    sendStatusTimer: null
   }
   card.jumpLatest.addEventListener('click', () => {
     card.screen.scrollTop = card.screen.scrollHeight
@@ -99,13 +107,19 @@ function createCard(lane) {
     const text = card.input.value.trim()
     if (!current || !text) return
     card.input.disabled = true
+    setSendStatus(card, 'Sending…')
     try {
-      await api('/api/send', {
+      const result = await api('/api/send', {
         method: 'POST',
         body: JSON.stringify({ handle: current.handle, text })
       })
+      if (result.send?.accepted !== true) throw new Error('Orca did not accept the message')
       card.input.value = ''
-      await poll(true)
+      setSendStatus(card, 'Sent', 'success')
+      card.sendStatusTimer = setTimeout(() => setSendStatus(card, ''), 2_000)
+      void poll(true)
+    } catch (error) {
+      setSendStatus(card, error instanceof Error ? error.message : String(error), 'error')
     } finally {
       card.input.disabled = false
       card.input.focus()
@@ -119,14 +133,23 @@ function updateCard(card, lane) {
   card.lane = lane
   const terminal = lane.terminal
   const screenError = lane.screen?.error
-  const fallbackView = lane.screen?.source && lane.screen.source !== 'screen'
+  const livePtyView = lane.screen?.source === 'stream'
+  const fallbackView =
+    lane.screen?.source && lane.screen.source !== 'screen' && lane.screen.source !== 'stream'
   card.name.textContent = lane.name
   card.role.textContent = roleLabel(lane.role)
   card.dot.className = `status-dot ${terminal?.connected ? 'active' : 'offline'}`
   const terminalMeta = terminal
     ? `${terminal.workspaceName} · ${terminal.branch || terminal.worktreePath}`
     : `${lane.worktreePath} · terminal unavailable`
-  card.meta.textContent = `${terminalMeta}${screenError ? ' · mirror retrying…' : fallbackView ? ' · text fallback' : ''}`
+  const mirrorMeta = screenError
+    ? ' · mirror retrying…'
+    : livePtyView
+      ? ' · live PTY feed'
+      : fallbackView
+        ? ' · text fallback'
+        : ''
+  card.meta.textContent = `${terminalMeta}${mirrorMeta}`
   card.meta.classList.toggle('stale', Boolean(screenError))
   card.meta.title = screenError || ''
   card.unread.hidden = terminal?.unread !== true

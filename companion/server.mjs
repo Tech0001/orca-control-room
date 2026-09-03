@@ -74,7 +74,7 @@ async function buildState(force = false) {
     enrichTerminal(terminal, snapshot.worktrees)
   )
   const bound = config.lanes.map((lane) => ({ lane, terminal: bindLane(lane, terminals) }))
-  await refreshBoundTerminalScreens(bound, screenCache, (handle) => orca.readScreen(handle), {
+  await refreshBoundTerminalScreens(bound, screenCache, (handle) => orca.readLive(handle), {
     concurrency: 4,
     canRead: (terminal) => handlePattern.test(terminal.handle)
   })
@@ -192,8 +192,8 @@ const server = createServer(async (request, response) => {
         if (typeof body.text !== 'string' || !body.text.trim() || body.text.length > 4_096) {
           throw new Error('Message must contain 1–4096 characters')
         }
-        await orca.send(handle, body.text)
-        return json(response, 200, { ok: true })
+        const send = await orca.send(handle, body.text)
+        return json(response, 200, { ok: true, send })
       }
       if (request.method === 'POST' && url.pathname === '/api/switch') {
         assertMutationOrigin(request)

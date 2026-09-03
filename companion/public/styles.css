@@ -78,6 +78,17 @@ h1 {
   font-size: 16px;
 }
 
+.title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.app-version {
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .eyebrow {
   color: var(--muted);
   font-size: 10px;
@@ -298,9 +309,27 @@ main {
 
 .composer {
   display: flex;
+  align-items: center;
   gap: 6px;
   padding: 6px;
   border-top: 1px solid var(--border);
+}
+
+.send-status {
+  max-width: 180px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.send-status.success {
+  color: var(--done);
+}
+
+.send-status.error {
+  color: var(--danger);
 }
 
 .composer input,

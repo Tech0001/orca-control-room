@@ -10,7 +10,10 @@
     <header class="topbar">
       <div>
         <p class="eyebrow">Director console</p>
-        <h1>Orca Control Room</h1>
+        <div class="title-row">
+          <h1>Orca Control Room</h1>
+          <span class="app-version">v0.2.1</span>
+        </div>
       </div>
       <div class="topbar-actions">
         <span id="connection" class="connection">Connecting…</span>
@@ -98,6 +101,7 @@
         </div>
         <form class="composer">
           <input type="text" maxlength="4096" placeholder="Send a message…" />
+          <span class="send-status" aria-live="polite"></span>
           <button type="submit">Send</button>
         </form>
       </article>
