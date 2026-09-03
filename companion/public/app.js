@@ -59,11 +59,16 @@ function renderTerminalLines(element, lines) {
 }
 
 function visibleLines(lane, terminal) {
+  let lines
   if (Array.isArray(lane.screen?.lines) && lane.screen.lines.length > 0) {
-    return lane.screen.lines.map(String)
+    lines = lane.screen.lines.map(String)
+  } else if (terminal?.preview) {
+    lines = String(terminal.preview).split(/\r?\n/)
+  } else {
+    lines = ['Waiting for terminal…']
   }
-  if (terminal?.preview) return String(terminal.preview).split(/\r?\n/)
-  return ['Waiting for terminal…']
+  const draft = typeof lane.screen?.draft === 'string' ? lane.screen.draft.trim() : ''
+  return draft ? [...lines, `❯ ${draft}  [unsent draft in Orca]`] : lines
 }
 
 function createCard(lane) {
@@ -136,6 +141,7 @@ function updateCard(card, lane) {
   card.lane = lane
   const terminal = lane.terminal
   const screenError = lane.screen?.error
+  const pendingDraft = typeof lane.screen?.draft === 'string' && lane.screen.draft.trim() !== ''
   const livePtyView = lane.screen?.source === 'stream'
   const fallbackView =
     lane.screen?.source && lane.screen.source !== 'screen' && lane.screen.source !== 'stream'
@@ -147,6 +153,8 @@ function updateCard(card, lane) {
     : `${lane.worktreePath} · terminal unavailable`
   const mirrorMeta = screenError
     ? ' · mirror retrying…'
+    : pendingDraft
+      ? ' · unsent native draft'
     : livePtyView
       ? ' · live PTY feed'
       : fallbackView
@@ -367,7 +375,10 @@ async function showTranscript(lane) {
   transcriptDialog.showModal()
   try {
     const result = await api(`/api/transcript?handle=${encodeURIComponent(lane.terminal.handle)}`)
-    renderTerminalLines(content, result.lines)
+    const lines = result.draft
+      ? [...result.lines, `❯ ${result.draft}  [unsent draft in Orca]`]
+      : result.lines
+    renderTerminalLines(content, lines)
     content.scrollTop = content.scrollHeight
   } catch (error) {
     renderTerminalLines(content, [error instanceof Error ? error.message : String(error)])

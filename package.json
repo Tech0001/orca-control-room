@@ -1,6 +1,6 @@
 {
   "name": "orca-control-room",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "private": true,
   "description": "A persistent director console for long-lived Orca agent lanes.",
   "type": "module",

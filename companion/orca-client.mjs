@@ -6,6 +6,7 @@ import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 const MAX_BUFFER_BYTES = 32 * 1024 * 1024
+const AGENT_SEND_TIMEOUT_MS = 60_000
 
 function canExecute(path) {
   try {
@@ -117,15 +118,10 @@ export class OrcaClient {
   }
 
   async send(handle, text) {
-    const result = await this.run([
-      'terminal',
-      'send',
-      '--terminal',
-      handle,
-      '--text',
-      text,
-      '--enter'
-    ])
+    const result = await this.run(
+      ['terminal', 'send', '--terminal', handle, '--text', text, '--enter'],
+      AGENT_SEND_TIMEOUT_MS
+    )
     if (result.send?.accepted !== true) {
       const reason = result.send?.refusedReason
         ? ' (' + result.send.refusedReason + ')'

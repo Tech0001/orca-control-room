@@ -5,7 +5,7 @@ import { dirname, extname, join, normalize } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { bindLane, enrichTerminal, normalizeConfig } from './model.mjs'
 import { OrcaClient } from './orca-client.mjs'
-import { refreshBoundTerminalScreens } from './screen-cache.mjs'
+import { mergeTerminalHistory, refreshBoundTerminalScreens } from './screen-cache.mjs'
 import { CONTROL_ROOM_VERSION } from '../version.mjs'
 
 const root = dirname(fileURLToPath(import.meta.url))
@@ -75,8 +75,10 @@ async function buildState(force = false) {
     enrichTerminal(terminal, snapshot.worktrees)
   )
   const bound = config.lanes.map((lane) => ({ lane, terminal: bindLane(lane, terminals) }))
-  await refreshBoundTerminalScreens(bound, screenCache, (handle) => orca.readLive(handle), {
-    concurrency: 4,
+  await refreshBoundTerminalScreens(bound, screenCache, (handle) => orca.readScreen(handle), {
+    // Each public CLI screen read has process startup cost. Run one per lane in
+    // parallel so an eleven-agent room completes in one wave instead of three.
+    concurrency: 12,
     canRead: (terminal) => handlePattern.test(terminal.handle)
   })
   return {
@@ -179,9 +181,15 @@ const server = createServer(async (request, response) => {
       }
       if (request.method === 'GET' && url.pathname === '/api/transcript') {
         const handle = validatedHandle(url.searchParams.get('handle'))
-        const transcript = await orca.readTranscript(handle)
+        const [transcript, screen] = await Promise.all([
+          orca.readTranscript(handle),
+          orca.readScreen(handle)
+        ])
+        const transcriptLines = Array.isArray(transcript.tail) ? transcript.tail.map(String) : []
+        const screenLines = Array.isArray(screen.tail) ? screen.tail.map(String) : []
         return json(response, 200, {
-          lines: Array.isArray(transcript.tail) ? transcript.tail : [],
+          lines: mergeTerminalHistory(transcriptLines, transcriptLines, screenLines, 2_200),
+          draft: typeof screen.draft === 'string' ? screen.draft : '',
           truncated: transcript.truncated === true,
           oldestCursor: transcript.oldestCursor ?? null
         })
@@ -197,6 +205,14 @@ const server = createServer(async (request, response) => {
         const handle = validatedHandle(body.handle)
         if (typeof body.text !== 'string' || !body.text.trim() || body.text.length > 4_096) {
           throw new Error('Message must contain 1–4096 characters')
+        }
+        const screen = await orca.readScreen(handle)
+        const pendingDraft = typeof screen.draft === 'string' ? screen.draft.trim() : ''
+        if (pendingDraft) {
+          const preview = pendingDraft.length > 80 ? `${pendingDraft.slice(0, 77)}…` : pendingDraft
+          throw new Error(
+            `This terminal already has an unsent draft: “${preview}”. Open it in Orca to submit or clear that draft first.`
+          )
         }
         const send = await orca.send(handle, body.text)
         return json(response, 200, { ok: true, send })
