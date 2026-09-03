@@ -176,7 +176,7 @@ async function serveStatic(url, response) {
   response.writeHead(200, {
     'content-type': mimeType(file),
     'content-length': body.length,
-    'cache-control': devMode ? 'no-store' : 'public, max-age=300',
+    'cache-control': devMode ? 'no-store' : 'no-cache',
     'content-security-policy':
       "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
     'x-content-type-options': 'nosniff',

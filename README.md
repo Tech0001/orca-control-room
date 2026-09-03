@@ -23,7 +23,8 @@ the primary view.
 2. Under **Development plugins**, add this repository folder.
 3. Review and enable **Orca Control Room**. The plugin contains a trusted Node worker because it
    launches the local companion process.
-4. Open Quick Actions and run **Control Room: Open Director Console**.
+4. Open **Search** (`Ctrl+J` on Linux), search for **Control Room**, and run
+   **Control Room: Open Director Console**.
 5. Choose **Manage lanes**, add the long-lived terminals, assign roles, and save the layout.
 
 On Linux, the launcher opens Chromium in app mode when available and falls back to the default

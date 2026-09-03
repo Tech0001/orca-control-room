@@ -93,14 +93,19 @@ function updateCard(card, lane) {
   const childCount = terminal?.childCount ?? 0
   card.children.hidden = childCount === 0
   card.children.textContent = `${childCount} child${childCount === 1 ? '' : 'ren'}`
-  card.composer.querySelector('button').disabled = !terminal?.writable
-  card.input.disabled = !terminal?.writable
+  const inputDisabled = !terminal?.writable
+  const sendButton = card.composer.querySelector('button')
+  if (sendButton.disabled !== inputDisabled) sendButton.disabled = inputDisabled
+  if (card.input.disabled !== inputDisabled) card.input.disabled = inputDisabled
   const nextText = lane.screen?.lines?.join('\n') || terminal?.preview || 'Waiting for terminal…'
   if (card.screen.textContent !== nextText) {
+    const previousScrollTop = card.screen.scrollTop
     const pinnedToBottom =
       card.screen.scrollHeight - card.screen.scrollTop - card.screen.clientHeight < 18
     card.screen.textContent = nextText
-    if (pinnedToBottom) card.screen.scrollTop = card.screen.scrollHeight
+    card.screen.scrollTop = pinnedToBottom
+      ? card.screen.scrollHeight
+      : Math.min(previousScrollTop, Math.max(0, card.screen.scrollHeight - card.screen.clientHeight))
   }
 }
 
@@ -116,10 +121,11 @@ function renderState(state) {
       cards.delete(id)
     }
   }
-  for (const lane of state.lanes) {
+  for (const [index, lane] of state.lanes.entries()) {
     const card = cards.get(lane.id) || createCard(lane)
     updateCard(card, lane)
-    grid.append(card.node)
+    const nodeAtIndex = grid.children[index] ?? null
+    if (nodeAtIndex !== card.node) grid.insertBefore(card.node, nodeAtIndex)
   }
 }
 
