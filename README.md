@@ -20,7 +20,6 @@ the primary view.
 - Opens retained terminal history on demand.
 - Waits for Orca's verified agent-prompt delivery result and displays failures without clearing
   the Control Room input.
-- Surfaces native terminal drafts and refuses to append a new prompt over one silently.
 - Sends a message or jumps directly to the native Orca terminal.
 - Persists lane names, strategist/manager roles, order, and column count.
 - Binds only to `127.0.0.1` and protects its local API with a random session token.

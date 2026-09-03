@@ -3,7 +3,7 @@
   "id": "control-room",
   "publisher": "tech0001",
   "name": "Orca Control Room",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Launch a persistent director console for long-lived Orca agent lanes.",
   "engines": {
     "orca": ">=1.4.178"

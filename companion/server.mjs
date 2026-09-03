@@ -189,7 +189,6 @@ const server = createServer(async (request, response) => {
         const screenLines = Array.isArray(screen.tail) ? screen.tail.map(String) : []
         return json(response, 200, {
           lines: mergeTerminalHistory(transcriptLines, transcriptLines, screenLines, 2_200),
-          draft: typeof screen.draft === 'string' ? screen.draft : '',
           truncated: transcript.truncated === true,
           oldestCursor: transcript.oldestCursor ?? null
         })
@@ -205,14 +204,6 @@ const server = createServer(async (request, response) => {
         const handle = validatedHandle(body.handle)
         if (typeof body.text !== 'string' || !body.text.trim() || body.text.length > 4_096) {
           throw new Error('Message must contain 1–4096 characters')
-        }
-        const screen = await orca.readScreen(handle)
-        const pendingDraft = typeof screen.draft === 'string' ? screen.draft.trim() : ''
-        if (pendingDraft) {
-          const preview = pendingDraft.length > 80 ? `${pendingDraft.slice(0, 77)}…` : pendingDraft
-          throw new Error(
-            `This terminal already has an unsent draft: “${preview}”. Open it in Orca to submit or clear that draft first.`
-          )
         }
         const send = await orca.send(handle, body.text)
         return json(response, 200, { ok: true, send })
