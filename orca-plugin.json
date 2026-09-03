@@ -5,7 +5,6 @@
   "name": "Orca Control Room",
   "version": "0.1.0",
   "description": "Launch a persistent director console for long-lived Orca agent lanes.",
-  "repository": "https://github.com/Tech0001/orca-control-room",
   "engines": {
     "orca": ">=1.4.178"
   },
