@@ -1,12 +1,37 @@
 import { execFile } from 'node:child_process'
+import { accessSync, constants } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 const MAX_BUFFER_BYTES = 32 * 1024 * 1024
 
-export function defaultOrcaCli(platform = process.platform) {
-  if (process.env.ORCA_CONTROL_ROOM_CLI) return process.env.ORCA_CONTROL_ROOM_CLI
-  return platform === 'linux' ? 'orca-ide' : 'orca'
+function canExecute(path) {
+  try {
+    accessSync(path, constants.X_OK)
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function defaultOrcaCli(
+  platform = process.platform,
+  environment = process.env,
+  home = homedir(),
+  executable = canExecute
+) {
+  if (environment.ORCA_CONTROL_ROOM_CLI) return environment.ORCA_CONTROL_ROOM_CLI
+  if (environment.ORCA_CLI_COMMAND) return environment.ORCA_CLI_COMMAND
+  if (environment.ORCA_DEV_REPO_ROOT) return 'orca-dev'
+  if (platform !== 'linux') return 'orca'
+
+  // AppImages prepend their temporary mount to PATH. That directory contains
+  // the Electron app binary named `orca-ide`, not the installed CLI wrapper.
+  // Use the stable launcher explicitly so Electron receives the CLI entrypoint.
+  const installedLauncher = join(home, '.local', 'bin', 'orca-ide')
+  return executable(installedLauncher) ? installedLauncher : 'orca-ide'
 }
 
 function parseJsonOutput(stdout) {

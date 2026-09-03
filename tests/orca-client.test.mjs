@@ -1,6 +1,29 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { OrcaClient } from '../companion/orca-client.mjs'
+import { defaultOrcaCli, OrcaClient } from '../companion/orca-client.mjs'
+
+test('uses the stable Linux CLI launcher instead of an AppImage PATH entry', () => {
+  let inspectedPath
+  const command = defaultOrcaCli('linux', {}, '/home/tester', (path) => {
+    inspectedPath = path
+    return true
+  })
+
+  assert.equal(inspectedPath, '/home/tester/.local/bin/orca-ide')
+  assert.equal(command, '/home/tester/.local/bin/orca-ide')
+})
+
+test('honors an explicit Orca CLI command', () => {
+  assert.equal(
+    defaultOrcaCli('linux', { ORCA_CONTROL_ROOM_CLI: '/opt/orca-cli' }, '/home/tester'),
+    '/opt/orca-cli'
+  )
+})
+
+test('falls back to the platform CLI name when no stable launcher exists', () => {
+  assert.equal(defaultOrcaCli('linux', {}, '/home/tester', () => false), 'orca-ide')
+  assert.equal(defaultOrcaCli('darwin', {}, '/Users/tester', () => false), 'orca')
+})
 
 test('uses background-safe terminal reads without the rendered-screen flag', async () => {
   let args

@@ -14,6 +14,8 @@ let latestState = null
 let editorLanes = []
 let polling = false
 let forcePollQueued = false
+let pollFailureCount = 0
+let automaticRetryAt = 0
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -199,6 +201,7 @@ function renderState(state) {
 }
 
 async function poll(force = false) {
+  if (!force && Date.now() < automaticRetryAt) return
   if (polling) {
     if (force) forcePollQueued = true
     return
@@ -209,9 +212,13 @@ async function poll(force = false) {
     renderState(state)
     connection.textContent = `Live · ${state.lanes.length} lanes`
     connection.classList.add('online')
+    pollFailureCount = 0
+    automaticRetryAt = 0
   } catch (error) {
     connection.textContent = error instanceof Error ? error.message : String(error)
     connection.classList.remove('online')
+    pollFailureCount += 1
+    automaticRetryAt = Date.now() + Math.min(30_000, 2_000 * 2 ** (pollFailureCount - 1))
   } finally {
     polling = false
     if (forcePollQueued) {
