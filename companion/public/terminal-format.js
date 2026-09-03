@@ -53,6 +53,87 @@ function isPlaceholderPrompt(text) {
   return /^(?:ask (?:codex|claude) to do anything|type a message)/i.test(text)
 }
 
+function withoutConversationMarker(line) {
+  return line.replace(userPromptPattern, '').replace(agentLeadPattern, '').trim()
+}
+
+const permissionOptionPattern =
+  /^\d+[.)]\s+(?:ask for approval|approve for me|full access|yes, continue anyway|cancel)\b/i
+
+export function filterTerminalUiNoise(values) {
+  const lines = (values ?? []).map((value) => String(value ?? ''))
+  const filtered = []
+  let permissionDialog = false
+  let permissionWarning = false
+  let usageNotice = false
+  let wrappedOption = false
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const raw = lines[index]
+    const text = withoutConversationMarker(raw)
+    const nextText = withoutConversationMarker(lines[index + 1] ?? '')
+
+    if (/^you have \d+ usage limit resets? available\b/i.test(text)) {
+      usageNotice = true
+      continue
+    }
+    if (usageNotice && /^use one\.?$/i.test(text)) {
+      usageNotice = false
+      continue
+    }
+    usageNotice = false
+    const beginsPermissionDialog =
+      /^update model permissions$/i.test(text) && /^(?:you|\d+[.)]\s)/i.test(nextText)
+    const beginsFullAccessDialog =
+      /^enable full access\?$/i.test(text) && /^when codex runs with full access\b/i.test(nextText)
+    if (beginsPermissionDialog || beginsFullAccessDialog) {
+      permissionDialog = true
+      permissionWarning = false
+      wrappedOption = false
+      continue
+    }
+    if (
+      !userPromptPattern.test(raw.trim()) &&
+      /^press enter to confirm or esc to go back$/i.test(text)
+    ) {
+      permissionDialog = false
+      permissionWarning = false
+      wrappedOption = false
+      continue
+    }
+    if (/^permissions updated to\b/i.test(text)) continue
+    if (isPlaceholderPrompt(text)) continue
+    if (/^gpt-[\w.-]+\b.*(?:·|\/|~)/i.test(text)) continue
+
+    if (permissionDialog) continue
+
+    // These checks also handle a viewport that begins halfway through the dialog.
+    if (/^you$/i.test(text) && permissionOptionPattern.test(nextText)) continue
+    if (permissionOptionPattern.test(text)) {
+      wrappedOption = true
+      permissionWarning = false
+      continue
+    }
+    if (/^when codex runs with full access\b/i.test(text)) {
+      permissionWarning = true
+      wrappedOption = false
+      continue
+    }
+    if (permissionWarning) {
+      if (permissionOptionPattern.test(text)) {
+        permissionWarning = false
+        wrappedOption = true
+      }
+      continue
+    }
+    if (wrappedOption && (/^\s{2,}/.test(raw) || !text)) continue
+    wrappedOption = false
+
+    filtered.push(raw)
+  }
+  return filtered
+}
+
 function isTerminalChrome(line, kind) {
   const text = line.trim()
   return (
@@ -83,7 +164,7 @@ export function terminalMessageBlocks(values, agentName = 'Agent') {
     else start('terminal', '', line, lineKind)
   }
 
-  for (const value of values ?? []) {
+  for (const value of filterTerminalUiNoise(values)) {
     const raw = String(value ?? '')
     const trimmed = raw.trim()
     const lineKind = terminalLineKind(raw)

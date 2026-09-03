@@ -81,6 +81,17 @@ test('replaces transient thinking redraws instead of accumulating them', () => {
   )
 })
 
+test('does not retain Codex permission dialog chrome in lane history', () => {
+  assert.deepEqual(
+    mergeTerminalHistory(
+      ['answer', 'Update Model Permissions', '1. Full Access', 'Press enter to confirm or esc to go back'],
+      ['answer'],
+      ['answer', '● Permissions updated to Full Access']
+    ),
+    ['answer']
+  )
+})
+
 test('keeps the last readable frame while a screen read is retrying', async () => {
   const cache = new Map([
     [

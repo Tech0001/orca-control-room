@@ -1,4 +1,4 @@
-import { isTransientTerminalStatus } from './public/terminal-format.js'
+import { filterTerminalUiNoise, isTransientTerminalStatus } from './public/terminal-format.js'
 
 function terminalLinesEqual(left, right) {
   if (left.length !== right.length) return false
@@ -50,14 +50,17 @@ export function mergeTerminalHistory(
   nextFrame,
   limit = MAX_LANE_HISTORY_LINES
 ) {
-  const rawHistory = Array.isArray(previousHistory) ? previousHistory.map(String) : []
-  const rawPrior = Array.isArray(previousFrame) ? previousFrame.map(String) : []
-  const rawNext = Array.isArray(nextFrame) ? nextFrame.map(String) : []
+  const sourceHistory = Array.isArray(previousHistory) ? previousHistory.map(String) : []
+  const sourcePrior = Array.isArray(previousFrame) ? previousFrame.map(String) : []
+  const sourceNext = Array.isArray(nextFrame) ? nextFrame.map(String) : []
+  const rawHistory = filterTerminalUiNoise(sourceHistory)
+  const rawPrior = filterTerminalUiNoise(sourcePrior)
+  const rawNext = filterTerminalUiNoise(sourceNext)
   const history = rawHistory.filter((line) => !isTransientTerminalStatus(line))
   const prior = rawPrior.filter((line) => !isTransientTerminalStatus(line))
   const next = rawNext.filter((line) => !isTransientTerminalStatus(line))
   const activeStatus = rawNext.filter(isTransientTerminalStatus).slice(-1)
-  if (rawNext.length === 0 || terminalLinesEqual(rawPrior, rawNext)) {
+  if (sourceNext.length === 0 || terminalLinesEqual(rawPrior, rawNext)) {
     return [...history, ...activeStatus].slice(-limit)
   }
   if (history.length === 0) return [...next, ...activeStatus].slice(-limit)
@@ -107,7 +110,12 @@ export async function refreshBoundTerminalScreens(
       const screen = await readScreen(terminal.handle)
       const frameLines = Array.isArray(screen.tail) ? screen.tail.map(String) : []
       const previousFrame = previous?.frameLines ?? previous?.lines ?? []
-      const changed = !previous || !terminalLinesEqual(previousFrame, frameLines)
+      const changed =
+        !previous ||
+        !terminalLinesEqual(
+          filterTerminalUiNoise(previousFrame),
+          filterTerminalUiNoise(frameLines)
+        )
       const lines = mergeTerminalHistory(previous?.lines, previousFrame, frameLines)
       screenCache.set(terminal.stableId, {
         lastOutputAt: terminal.lastOutputAt,

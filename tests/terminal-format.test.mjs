@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  filterTerminalUiNoise,
   isTransientTerminalStatus,
   terminalLineKind,
   terminalMessageBlocks
@@ -60,4 +61,44 @@ test('recognizes only unfinished whimsical activity as transient', () => {
   assert.equal(isTransientTerminalStatus('✻ Stewing…'), true)
   assert.equal(isTransientTerminalStatus('✻ Combobulating...'), true)
   assert.equal(isTransientTerminalStatus('✻ Churned for 4s · done'), false)
+})
+
+test('removes Codex permission dialogs, usage notices, and idle footer chrome', () => {
+  const lines = [
+    '● A real reply remains visible.',
+    'You have 1 usage limit reset available. Run /usage to',
+    'use one.',
+    'Update Model Permissions',
+    'You',
+    '1. Ask for approval (current)  Codex can read and',
+    '                               edit files in the current workspace.',
+    '2. Approve for me              Only ask for unsafe actions.',
+    '3. Full Access                 Codex can edit other files.',
+    'Press enter to confirm or esc to go back',
+    'Enable full access?',
+    'When Codex runs with full access, it can edit any',
+    'file on your computer without your approval.',
+    '1. Yes, continue anyway  Apply full access for this session',
+    '2. Cancel                Go back without enabling full access',
+    'Press enter to confirm or esc to go back',
+    '● Permissions updated to Full Access',
+    '› Ask Codex to do anything',
+    '  gpt-5.6-sol xhigh · ~/Documents/GitHub/agent-Capella'
+  ]
+
+  assert.deepEqual(filterTerminalUiNoise(lines), ['● A real reply remains visible.'])
+  assert.deepEqual(
+    terminalMessageBlocks(lines, 'Capella').map(({ kind, lines: blockLines }) => ({
+      kind,
+      lines: blockLines.map((line) => line.text)
+    })),
+    [{ kind: 'agent', lines: ['A real reply remains visible.'] }]
+  )
+})
+
+test('does not hide a real prompt asking about full access', () => {
+  assert.deepEqual(filterTerminalUiNoise(['› Enable full access?', '● No.']), [
+    '› Enable full access?',
+    '● No.'
+  ])
 })
