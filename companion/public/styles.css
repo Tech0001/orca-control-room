@@ -457,6 +457,10 @@ main {
   grid-area: image;
 }
 
+.composer button {
+  font: 500 11px/1.35 "DejaVu Sans Mono", "Cascadia Mono", monospace;
+}
+
 .composer button[type='submit'] {
   grid-area: send;
 }
