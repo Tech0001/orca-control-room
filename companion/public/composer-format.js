@@ -12,3 +12,7 @@ export function composeAgentPrompt(text, attachments = []) {
 export function shouldSubmitComposer(event) {
   return event.key === 'Enter' && !event.shiftKey && !event.isComposing
 }
+
+export function shouldFocusComposer(selection) {
+  return !selection || selection.isCollapsed
+}

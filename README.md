@@ -27,6 +27,8 @@ the primary view.
 - Waits for Orca's verified agent-prompt delivery result and displays failures without clearing
   the Control Room input.
 - Supports multiline prompts and pasted snippets: Enter sends, while Shift+Enter inserts a line.
+- Focuses a lane's compact composer when its conversation area is clicked, while preserving text
+  selection in the transcript.
 - Previews clipboard or file-picker images and sends their private local paths with the prompt.
 - Sends a message or jumps directly to the native Orca terminal.
 - Persists lane names, strategist/manager roles, order, and column count.

@@ -1,4 +1,8 @@
-import { composeAgentPrompt, shouldSubmitComposer } from './composer-format.js'
+import {
+  composeAgentPrompt,
+  shouldFocusComposer,
+  shouldSubmitComposer
+} from './composer-format.js'
 import { terminalMessageBlocks } from './terminal-format.js'
 
 const params = new URLSearchParams(location.search)
@@ -285,6 +289,11 @@ function createCard(lane) {
   })
   card.screen.addEventListener('scroll', () => {
     if (isNearBottom(card.screen)) card.jumpLatest.hidden = true
+  })
+  card.screen.addEventListener('click', () => {
+    const selection = window.getSelection()
+    if (!shouldFocusComposer(selection)) return
+    if (!card.input.disabled) card.input.focus({ preventScroll: true })
   })
   node.querySelector('.maximize').addEventListener('click', () => {
     node.classList.toggle('maximized')

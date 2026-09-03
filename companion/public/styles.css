@@ -445,7 +445,7 @@ main {
   min-height: 34px;
   max-height: 140px;
   overflow-y: hidden;
-  line-height: 1.35;
+  font: 500 11px/1.35 "DejaVu Sans Mono", "Cascadia Mono", monospace;
   resize: none;
 }
 

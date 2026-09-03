@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { composeAgentPrompt, shouldSubmitComposer } from '../companion/public/composer-format.js'
+import {
+  composeAgentPrompt,
+  shouldFocusComposer,
+  shouldSubmitComposer
+} from '../companion/public/composer-format.js'
 
 test('composeAgentPrompt preserves multiline text and appends image paths', () => {
   assert.equal(
@@ -15,4 +19,10 @@ test('Enter submits while Shift+Enter and composition do not', () => {
   assert.equal(shouldSubmitComposer({ key: 'Enter', shiftKey: true, isComposing: false }), false)
   assert.equal(shouldSubmitComposer({ key: 'Enter', shiftKey: false, isComposing: true }), false)
   assert.equal(shouldSubmitComposer({ key: 'a', shiftKey: false, isComposing: false }), false)
+})
+
+test('conversation clicks focus the composer unless text is selected', () => {
+  assert.equal(shouldFocusComposer(null), true)
+  assert.equal(shouldFocusComposer({ isCollapsed: true }), true)
+  assert.equal(shouldFocusComposer({ isCollapsed: false }), false)
 })
