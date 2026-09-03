@@ -1,0 +1,14 @@
+{
+  "name": "orca-control-room",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A persistent director console for long-lived Orca agent lanes.",
+  "type": "module",
+  "scripts": {
+    "start": "node companion/server.mjs --dev",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

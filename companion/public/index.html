@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Orca Control Room</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Director console</p>
+        <h1>Orca Control Room</h1>
+      </div>
+      <div class="topbar-actions">
+        <span id="connection" class="connection">Connecting…</span>
+        <button id="manage" type="button">Manage lanes</button>
+        <button id="refresh" type="button">Refresh</button>
+      </div>
+    </header>
+
+    <main>
+      <div id="empty" class="empty" hidden>
+        <h2>Build your leadership roster</h2>
+        <p>Pin the long-lived agent terminals that should always remain in view.</p>
+        <button id="empty-manage" type="button">Choose agent lanes</button>
+      </div>
+      <section id="grid" class="lane-grid" aria-label="Agent lanes"></section>
+    </main>
+
+    <dialog id="manager-dialog" class="dialog manager-dialog">
+      <form method="dialog" class="dialog-shell">
+        <header>
+          <div>
+            <p class="eyebrow">Persistent organization</p>
+            <h2>Manage agent lanes</h2>
+          </div>
+          <button value="cancel" class="icon-button" aria-label="Close">×</button>
+        </header>
+        <label class="columns-control">
+          Columns
+          <input id="columns" type="number" min="1" max="8" />
+        </label>
+        <div class="manager-columns">
+          <section>
+            <h3>Pinned lanes</h3>
+            <div id="pinned-list" class="terminal-list"></div>
+          </section>
+          <section>
+            <h3>Available terminals</h3>
+            <input id="terminal-filter" type="search" placeholder="Filter workspaces…" />
+            <div id="available-list" class="terminal-list"></div>
+          </section>
+        </div>
+        <footer>
+          <span id="save-status"></span>
+          <button value="cancel">Cancel</button>
+          <button id="save-config" type="button" class="primary">Save layout</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="transcript-dialog" class="dialog transcript-dialog">
+      <div class="dialog-shell">
+        <header>
+          <div>
+            <p class="eyebrow">Retained context</p>
+            <h2 id="transcript-title">Transcript</h2>
+          </div>
+          <button id="close-transcript" class="icon-button" aria-label="Close">×</button>
+        </header>
+        <pre id="transcript-content">Loading…</pre>
+      </div>
+    </dialog>
+
+    <template id="lane-template">
+      <article class="lane">
+        <header class="lane-header">
+          <div class="lane-identity">
+            <span class="status-dot"></span>
+            <div>
+              <h2 class="lane-name"></h2>
+              <p class="lane-role"></p>
+            </div>
+          </div>
+          <div class="lane-actions">
+            <span class="children" hidden></span>
+            <span class="unread" hidden>Unread</span>
+            <button class="transcript" type="button">History</button>
+            <button class="open-native" type="button">Open</button>
+            <button class="maximize" type="button" aria-label="Maximize lane">↗</button>
+          </div>
+        </header>
+        <div class="lane-meta"></div>
+        <pre class="screen"></pre>
+        <form class="composer">
+          <input type="text" maxlength="4096" placeholder="Send a message…" />
+          <button type="submit">Send</button>
+        </form>
+      </article>
+    </template>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,24 @@
+{
+  "manifestVersion": 1,
+  "id": "control-room",
+  "publisher": "tech0001",
+  "name": "Orca Control Room",
+  "version": "0.1.0",
+  "description": "Launch a persistent director console for long-lived Orca agent lanes.",
+  "repository": "https://github.com/Tech0001/orca-control-room",
+  "engines": {
+    "orca": ">=1.4.178"
+  },
+  "pluginApi": 1,
+  "main": "main.mjs",
+  "contributes": {
+    "commands": [
+      {
+        "id": "open-control-room",
+        "title": "Control Room: Open Director Console",
+        "context": "global"
+      }
+    ]
+  },
+  "capabilities": []
+}
