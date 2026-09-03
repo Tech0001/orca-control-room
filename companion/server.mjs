@@ -84,7 +84,8 @@ async function buildState(force = false) {
     // Each public CLI screen read has process startup cost. Run one per lane in
     // parallel so an eleven-agent room completes in one wave instead of three.
     concurrency: 12,
-    canRead: (terminal) => handlePattern.test(terminal.handle)
+    canRead: (terminal) => handlePattern.test(terminal.handle),
+    readTranscript: (handle) => orca.readLive(handle, 500)
   })
   return {
     connected: true,
@@ -94,10 +95,16 @@ async function buildState(force = false) {
     lanes: bound.map(({ lane, terminal }) => ({
       ...lane,
       terminal,
-      screen: terminal ? screenCache.get(terminal.stableId) ?? null : null
+      screen: terminal ? publicScreenState(screenCache.get(terminal.stableId)) : null
     })),
     available: terminals
   }
+}
+
+function publicScreenState(screen) {
+  if (!screen) return null
+  const { rawFrameLines: _rawFrameLines, ...visible } = screen
+  return visible
 }
 
 function json(response, status, value) {

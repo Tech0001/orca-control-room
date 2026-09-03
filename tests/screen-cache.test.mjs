@@ -2,7 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   mergeTerminalHistory,
-  refreshBoundTerminalScreens
+  refreshBoundTerminalScreens,
+  restoreTranscriptParagraphs
 } from '../companion/screen-cache.mjs'
 
 const terminal = {
@@ -49,6 +50,58 @@ test('appends only new rows when the terminal viewport advances', () => {
     ),
     ['one', 'two', 'three', 'four']
   )
+})
+
+test('restores only transcript-confirmed paragraph breaks to a rendered screen', () => {
+  assert.deepEqual(
+    restoreTranscriptParagraphs(
+      ['● First paragraph.', 'Second paragraph wraps', 'onto another line.', 'Final paragraph.'],
+      [
+        'older output',
+        '',
+        '● First paragraph.',
+        '',
+        '',
+        'Second paragraph wraps',
+        'onto another line.',
+        '',
+        'Final paragraph.'
+      ]
+    ),
+    [
+      '● First paragraph.',
+      '',
+      'Second paragraph wraps',
+      'onto another line.',
+      '',
+      'Final paragraph.'
+    ]
+  )
+})
+
+test('enriches changed screens with transcript paragraphs and reuses them when unchanged', async () => {
+  const cache = new Map()
+  let transcriptReads = 0
+  const readScreen = async () => ({
+    tail: ['● First paragraph.', 'Second paragraph.'],
+    source: 'screen'
+  })
+  const options = {
+    readTranscript: async () => {
+      transcriptReads += 1
+      return { tail: ['● First paragraph.', '', 'Second paragraph.'] }
+    }
+  }
+
+  await refreshBoundTerminalScreens([{ terminal }], cache, readScreen, options)
+  await refreshBoundTerminalScreens([{ terminal }], cache, readScreen, options)
+
+  assert.equal(transcriptReads, 1)
+  assert.deepEqual(cache.get(terminal.stableId).lines, [
+    '● First paragraph.',
+    '',
+    'Second paragraph.'
+  ])
 })
 
 test('retains the old frame while adding changed redraw rows', () => {

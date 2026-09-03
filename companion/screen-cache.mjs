@@ -7,6 +7,72 @@ function terminalLinesEqual(left, right) {
 
 const MAX_LANE_HISTORY_LINES = 600
 
+function comparableLine(value) {
+  return String(value ?? '').trim().replace(/\s+/g, ' ')
+}
+
+export function restoreTranscriptParagraphs(screenLines, transcriptLines) {
+  const screen = Array.isArray(screenLines) ? screenLines.map(String) : []
+  const transcript = Array.isArray(transcriptLines) ? transcriptLines.map(String) : []
+  if (screen.length < 2 || !transcript.some((line) => !line.trim())) return screen
+
+  const screenKeys = screen.map(comparableLine)
+  const transcriptKeys = transcript.map(comparableLine)
+  const lengths = Array.from(
+    { length: screen.length + 1 },
+    () => new Uint16Array(transcript.length + 1)
+  )
+  for (let screenIndex = 1; screenIndex <= screen.length; screenIndex += 1) {
+    for (let transcriptIndex = 1; transcriptIndex <= transcript.length; transcriptIndex += 1) {
+      lengths[screenIndex][transcriptIndex] =
+        screenKeys[screenIndex - 1] &&
+        screenKeys[screenIndex - 1] === transcriptKeys[transcriptIndex - 1]
+          ? lengths[screenIndex - 1][transcriptIndex - 1] + 1
+          : Math.max(
+              lengths[screenIndex - 1][transcriptIndex],
+              lengths[screenIndex][transcriptIndex - 1]
+            )
+    }
+  }
+
+  const matchedTranscriptIndex = new Map()
+  let screenIndex = screen.length
+  let transcriptIndex = transcript.length
+  while (screenIndex > 0 && transcriptIndex > 0) {
+    if (
+      screenKeys[screenIndex - 1] &&
+      screenKeys[screenIndex - 1] === transcriptKeys[transcriptIndex - 1]
+    ) {
+      matchedTranscriptIndex.set(screenIndex - 1, transcriptIndex - 1)
+      screenIndex -= 1
+      transcriptIndex -= 1
+    } else if (
+      lengths[screenIndex - 1][transcriptIndex] >=
+      lengths[screenIndex][transcriptIndex - 1]
+    ) {
+      screenIndex -= 1
+    } else {
+      transcriptIndex -= 1
+    }
+  }
+
+  const restored = []
+  for (let index = 0; index < screen.length; index += 1) {
+    const previousMatch = matchedTranscriptIndex.get(index - 1)
+    const currentMatch = matchedTranscriptIndex.get(index)
+    if (
+      previousMatch !== undefined &&
+      currentMatch !== undefined &&
+      currentMatch > previousMatch + 1
+    ) {
+      const between = transcript.slice(previousMatch + 1, currentMatch)
+      if (between.length > 0 && between.every((line) => !line.trim())) restored.push('')
+    }
+    restored.push(screen[index])
+  }
+  return restored
+}
+
 function sequenceIndex(haystack, needle) {
   if (needle.length === 0 || needle.length > haystack.length) return -1
   for (let start = 0; start <= haystack.length - needle.length; start += 1) {
@@ -100,7 +166,12 @@ export async function refreshBoundTerminalScreens(
   bindings,
   screenCache,
   readScreen,
-  { concurrency = 4, now = () => Date.now(), canRead = () => true } = {}
+  {
+    concurrency = 4,
+    now = () => Date.now(),
+    canRead = () => true,
+    readTranscript = null
+  } = {}
 ) {
   await mapWithConcurrency(bindings, concurrency, async ({ terminal }) => {
     if (!terminal?.connected || !canRead(terminal)) return
@@ -108,19 +179,31 @@ export async function refreshBoundTerminalScreens(
     const readAt = now()
     try {
       const screen = await readScreen(terminal.handle)
-      const frameLines = Array.isArray(screen.tail) ? screen.tail.map(String) : []
-      const previousFrame = previous?.frameLines ?? previous?.lines ?? []
+      const rawFrameLines = Array.isArray(screen.tail) ? screen.tail.map(String) : []
+      const previousRawFrame = previous?.rawFrameLines ?? previous?.frameLines ?? previous?.lines ?? []
+      const rawFrameChanged = !previous || !terminalLinesEqual(previousRawFrame, rawFrameLines)
+      let frameLines = rawFrameChanged ? rawFrameLines : previous?.frameLines ?? rawFrameLines
+      if (rawFrameChanged && typeof readTranscript === 'function') {
+        try {
+          const transcript = await readTranscript(terminal.handle)
+          frameLines = restoreTranscriptParagraphs(frameLines, transcript?.tail)
+        } catch {
+          // The rendered screen remains usable when transcript enrichment is unavailable.
+        }
+      }
+      const previousFrame = previous?.frameLines ?? previousRawFrame
       const changed =
         !previous ||
         !terminalLinesEqual(
-          filterTerminalUiNoise(previousFrame),
-          filterTerminalUiNoise(frameLines)
+          filterTerminalUiNoise(previousRawFrame),
+          filterTerminalUiNoise(rawFrameLines)
         )
       const lines = mergeTerminalHistory(previous?.lines, previousFrame, frameLines)
       screenCache.set(terminal.stableId, {
         lastOutputAt: terminal.lastOutputAt,
         lines,
         frameLines,
+        rawFrameLines,
         source: screen.source ?? 'unknown',
         draft: typeof screen.draft === 'string' ? screen.draft : '',
         readAt,
@@ -133,6 +216,7 @@ export async function refreshBoundTerminalScreens(
         lastOutputAt: terminal.lastOutputAt,
         lines: previous?.lines ?? [],
         frameLines: previous?.frameLines ?? previous?.lines ?? [],
+        rawFrameLines: previous?.rawFrameLines ?? previous?.frameLines ?? previous?.lines ?? [],
         source: previous?.source ?? 'unknown',
         draft: previous?.draft ?? '',
         readAt: previous?.readAt ?? null,

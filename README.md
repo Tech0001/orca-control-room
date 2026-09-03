@@ -15,6 +15,8 @@ the primary view.
   frames into a bounded lane history.
 - Adds terminal-style highlighting to the plain-text terminal data exposed by Orca's public CLI.
 - Groups prompts, replies, tool activity, and thinking into labeled conversation blocks.
+- Restores paragraph breaks that Orca's rendered-screen projection omits by aligning the live
+  screen with its accumulated terminal transcript.
 - Filters Codex permission dialogs, usage notices, idle prompts, and other terminal-interface noise
   out of the conversation view and retained lane history.
 - Replaces animated thinking redraws in place instead of repeating them in lane history.
