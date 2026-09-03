@@ -62,6 +62,25 @@ test('retains the old frame while adding changed redraw rows', () => {
   )
 })
 
+test('replaces transient thinking redraws instead of accumulating them', () => {
+  assert.deepEqual(
+    mergeTerminalHistory(
+      ['answer', '✻ Stewing…'],
+      ['answer', '✻ Stewing…'],
+      ['answer', '✻ Combobulating…']
+    ),
+    ['answer', '✻ Combobulating…']
+  )
+  assert.deepEqual(
+    mergeTerminalHistory(
+      ['answer', '✻ Combobulating…'],
+      ['answer', '✻ Combobulating…'],
+      ['answer', 'final reply']
+    ),
+    ['answer', 'final reply']
+  )
+})
+
 test('keeps the last readable frame while a screen read is retrying', async () => {
   const cache = new Map([
     [

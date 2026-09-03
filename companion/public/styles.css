@@ -123,9 +123,9 @@ main {
 }
 
 .lane-grid {
-  display: grid;
-  grid-template-columns: repeat(var(--columns), minmax(420px, 1fr));
-  grid-auto-rows: minmax(430px, calc((100vh - 86px) / 2));
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
   gap: 7px;
   min-width: calc(var(--columns) * 420px + (var(--columns) - 1) * 7px);
 }
@@ -133,8 +133,11 @@ main {
 .lane {
   position: relative;
   display: flex;
-  min-width: 0;
-  min-height: 0;
+  width: var(--default-lane-width, 420px);
+  height: max(430px, calc((100vh - 86px) / 2));
+  min-width: 340px;
+  min-height: 280px;
+  flex: 0 0 auto;
   flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -147,6 +150,8 @@ main {
   position: fixed;
   inset: 8px;
   z-index: 40;
+  width: auto !important;
+  height: auto !important;
   box-shadow: 0 24px 80px rgb(0 0 0 / 70%);
 }
 
@@ -261,6 +266,86 @@ main {
   padding: 0 4px;
 }
 
+.terminal-block {
+  position: relative;
+  margin: 3px 0;
+}
+
+.terminal-block-label {
+  display: block;
+  margin-bottom: 3px;
+  font: 800 8px/1 Inter, ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.terminal-block-user,
+.terminal-block-agent,
+.terminal-block-tool {
+  margin: 7px 0;
+  padding: 7px 8px;
+  border-left: 3px solid;
+  border-radius: 0 6px 6px 0;
+}
+
+.terminal-block-user {
+  border-left-color: #38bdf8;
+  background: rgb(14 116 144 / 22%);
+}
+
+.terminal-block-user .terminal-block-label {
+  color: #7dd3fc;
+}
+
+.terminal-block-agent {
+  border-left-color: #34d399;
+  background: rgb(6 78 59 / 18%);
+}
+
+.terminal-block-agent .terminal-block-label {
+  color: #6ee7b7;
+}
+
+.terminal-block-tool {
+  border-left-color: #c084fc;
+  background: rgb(88 28 135 / 18%);
+}
+
+.terminal-block-tool .terminal-block-label {
+  color: #d8b4fe;
+}
+
+.terminal-block-activity {
+  margin: 4px 5px;
+  color: #d6a94f;
+}
+
+.terminal-block-activity .terminal-block-label {
+  display: inline;
+  margin-right: 6px;
+  color: #fbbf24;
+}
+
+.terminal-block-activity .terminal-block-lines {
+  display: inline;
+}
+
+.terminal-block-activity .terminal-line {
+  display: inline;
+}
+
+.terminal-block-terminal {
+  opacity: 0.52;
+}
+
+.terminal-block-user .terminal-prompt,
+.terminal-block-agent .terminal-bullet,
+.terminal-block-tool .terminal-command {
+  margin: 0;
+  border-left: 0;
+  background: transparent;
+}
+
 .terminal-prompt {
   margin: 2px 0;
   border-left-color: #94a3b8;
@@ -341,6 +426,40 @@ main {
   min-width: 0;
   flex: 1;
   padding: 6px 8px;
+}
+
+.lane-resize-handle {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  z-index: 5;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background:
+    linear-gradient(135deg, transparent 0 42%, #64748b 43% 50%, transparent 51% 62%, #64748b 63% 70%, transparent 71%);
+  cursor: nwse-resize;
+  opacity: 0.55;
+  touch-action: none;
+}
+
+.lane-resize-handle:hover,
+.lane-resize-handle:focus-visible {
+  border: 0;
+  background:
+    linear-gradient(135deg, transparent 0 42%, #7dd3fc 43% 50%, transparent 51% 62%, #7dd3fc 63% 70%, transparent 71%);
+  opacity: 1;
+}
+
+.lane.maximized .lane-resize-handle {
+  display: none;
+}
+
+body.resizing-lane {
+  cursor: nwse-resize;
+  user-select: none;
 }
 
 .empty {

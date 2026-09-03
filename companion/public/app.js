@@ -1,4 +1,4 @@
-import { terminalLineKind } from './terminal-format.js'
+import { terminalMessageBlocks } from './terminal-format.js'
 
 const params = new URLSearchParams(location.search)
 const token = params.get('token') || 'development-only-token'
@@ -10,6 +10,9 @@ const managerDialog = document.querySelector('#manager-dialog')
 const transcriptDialog = document.querySelector('#transcript-dialog')
 const laneTemplate = document.querySelector('#lane-template')
 const cards = new Map()
+const laneSizeStorageKey = 'orca-control-room:lane-sizes:v1'
+const minimumLaneWidth = 340
+const minimumLaneHeight = 280
 let latestState = null
 let editorLanes = []
 let polling = false
@@ -47,15 +50,105 @@ function isNearBottom(element) {
   return element.scrollHeight - element.scrollTop - element.clientHeight < 18
 }
 
-function renderTerminalLines(element, lines) {
+function renderTerminalLines(element, lines, agentName = 'Agent') {
   const fragment = document.createDocumentFragment()
-  for (const line of lines) {
-    const row = document.createElement('span')
-    row.className = `terminal-line terminal-${terminalLineKind(line)}`
-    row.textContent = line || '\u00a0'
-    fragment.append(row)
+  for (const block of terminalMessageBlocks(lines, agentName)) {
+    const container = document.createElement(block.kind === 'terminal' ? 'div' : 'section')
+    container.className = `terminal-block terminal-block-${block.kind}`
+    if (block.label) {
+      const label = document.createElement('span')
+      label.className = 'terminal-block-label'
+      label.textContent = block.label
+      container.append(label)
+    }
+    const body = document.createElement('div')
+    body.className = 'terminal-block-lines'
+    for (const line of block.lines) {
+      const row = document.createElement('span')
+      row.className = `terminal-line terminal-${line.kind}`
+      row.textContent = line.text || '\u00a0'
+      body.append(row)
+    }
+    container.append(body)
+    fragment.append(container)
   }
   element.replaceChildren(fragment)
+}
+
+function readLaneSizes() {
+  try {
+    const value = JSON.parse(localStorage.getItem(laneSizeStorageKey) || '{}')
+    return value && typeof value === 'object' ? value : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeLaneSize(laneId, size) {
+  const sizes = readLaneSizes()
+  if (size) sizes[laneId] = size
+  else delete sizes[laneId]
+  localStorage.setItem(laneSizeStorageKey, JSON.stringify(sizes))
+}
+
+function applySavedLaneSize(card, laneId) {
+  const size = readLaneSizes()[laneId]
+  if (!size) return
+  if (Number.isFinite(size.width)) card.node.style.width = `${Math.max(minimumLaneWidth, size.width)}px`
+  if (Number.isFinite(size.height)) card.node.style.height = `${Math.max(minimumLaneHeight, size.height)}px`
+}
+
+function startLaneResize(event, card) {
+  if (card.node.classList.contains('maximized')) return
+  event.preventDefault()
+  const start = card.node.getBoundingClientRect()
+  const startX = event.clientX
+  const startY = event.clientY
+  const pointerId = event.pointerId
+  card.resizeHandle.setPointerCapture(pointerId)
+  document.body.classList.add('resizing-lane')
+
+  const move = (nextEvent) => {
+    if (nextEvent.pointerId !== pointerId) return
+    const maximumWidth = Math.max(minimumLaneWidth, grid.getBoundingClientRect().width)
+    const width = Math.min(maximumWidth, Math.max(minimumLaneWidth, start.width + nextEvent.clientX - startX))
+    const height = Math.min(2400, Math.max(minimumLaneHeight, start.height + nextEvent.clientY - startY))
+    card.node.style.width = `${Math.round(width)}px`
+    card.node.style.height = `${Math.round(height)}px`
+  }
+  const end = (nextEvent) => {
+    if (nextEvent.pointerId !== pointerId) return
+    card.resizeHandle.removeEventListener('pointermove', move)
+    card.resizeHandle.removeEventListener('pointerup', end)
+    card.resizeHandle.removeEventListener('pointercancel', end)
+    document.body.classList.remove('resizing-lane')
+    const finalSize = card.node.getBoundingClientRect()
+    writeLaneSize(card.lane.id, {
+      width: Math.round(finalSize.width),
+      height: Math.round(finalSize.height)
+    })
+  }
+  card.resizeHandle.addEventListener('pointermove', move)
+  card.resizeHandle.addEventListener('pointerup', end)
+  card.resizeHandle.addEventListener('pointercancel', end)
+}
+
+function resizeLaneWithKeyboard(event, card) {
+  const directions = {
+    ArrowLeft: [-40, 0],
+    ArrowRight: [40, 0],
+    ArrowUp: [0, -40],
+    ArrowDown: [0, 40]
+  }
+  const delta = directions[event.key]
+  if (!delta || card.node.classList.contains('maximized')) return
+  event.preventDefault()
+  const current = card.node.getBoundingClientRect()
+  const width = Math.max(minimumLaneWidth, current.width + delta[0])
+  const height = Math.max(minimumLaneHeight, current.height + delta[1])
+  card.node.style.width = `${Math.round(width)}px`
+  card.node.style.height = `${Math.round(height)}px`
+  writeLaneSize(card.lane.id, { width: Math.round(width), height: Math.round(height) })
 }
 
 function visibleLines(lane, terminal) {
@@ -81,9 +174,18 @@ function createCard(lane) {
     composer: node.querySelector('.composer'),
     input: node.querySelector('.composer input'),
     sendStatus: node.querySelector('.send-status'),
+    resizeHandle: node.querySelector('.lane-resize-handle'),
     screenText: null,
     sendStatusTimer: null
   }
+  applySavedLaneSize(card, lane.id)
+  card.resizeHandle.addEventListener('pointerdown', (event) => startLaneResize(event, card))
+  card.resizeHandle.addEventListener('keydown', (event) => resizeLaneWithKeyboard(event, card))
+  card.resizeHandle.addEventListener('dblclick', () => {
+    card.node.style.removeProperty('width')
+    card.node.style.removeProperty('height')
+    writeLaneSize(card.lane.id, null)
+  })
   card.jumpLatest.addEventListener('click', () => {
     card.screen.scrollTop = card.screen.scrollHeight
     card.jumpLatest.hidden = true
@@ -169,7 +271,7 @@ function updateCard(card, lane) {
     const hadPreviousFrame = card.screenText !== null
     const previousScrollTop = card.screen.scrollTop
     const pinnedToBottom = isNearBottom(card.screen)
-    renderTerminalLines(card.screen, nextLines)
+    renderTerminalLines(card.screen, nextLines, lane.name)
     card.screenText = nextText
     card.screen.scrollTop = pinnedToBottom
       ? card.screen.scrollHeight
@@ -183,6 +285,16 @@ function renderState(state) {
   appVersion.textContent = state.version ? `v${state.version}` : 'Backend restart required'
   appVersion.classList.toggle('stale', !state.version)
   document.documentElement.style.setProperty('--columns', String(state.config.columns))
+  const gridGap = 7
+  const availableWidth = Math.max(0, window.innerWidth - 16)
+  const gridWidth = Math.max(
+    availableWidth,
+    state.config.columns * 420 + (state.config.columns - 1) * gridGap
+  )
+  const defaultLaneWidth =
+    (gridWidth - (state.config.columns - 1) * gridGap) / state.config.columns
+  grid.style.width = `${Math.round(gridWidth)}px`
+  document.documentElement.style.setProperty('--default-lane-width', `${defaultLaneWidth}px`)
   empty.hidden = state.lanes.length > 0
   grid.hidden = state.lanes.length === 0
   const activeIds = new Set(state.lanes.map((lane) => lane.id))
@@ -367,7 +479,7 @@ async function showTranscript(lane) {
   transcriptDialog.showModal()
   try {
     const result = await api(`/api/transcript?handle=${encodeURIComponent(lane.terminal.handle)}`)
-    renderTerminalLines(content, result.lines)
+    renderTerminalLines(content, result.lines, lane.name)
     content.scrollTop = content.scrollHeight
   } catch (error) {
     renderTerminalLines(content, [error instanceof Error ? error.message : String(error)])

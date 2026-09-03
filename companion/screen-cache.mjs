@@ -1,3 +1,5 @@
+import { isTransientTerminalStatus } from './public/terminal-format.js'
+
 function terminalLinesEqual(left, right) {
   if (left.length !== right.length) return false
   return left.every((line, index) => line === right[index])
@@ -48,11 +50,17 @@ export function mergeTerminalHistory(
   nextFrame,
   limit = MAX_LANE_HISTORY_LINES
 ) {
-  const history = Array.isArray(previousHistory) ? previousHistory.map(String) : []
-  const prior = Array.isArray(previousFrame) ? previousFrame.map(String) : []
-  const next = Array.isArray(nextFrame) ? nextFrame.map(String) : []
-  if (next.length === 0 || terminalLinesEqual(prior, next)) return history
-  if (history.length === 0) return next.slice(-limit)
+  const rawHistory = Array.isArray(previousHistory) ? previousHistory.map(String) : []
+  const rawPrior = Array.isArray(previousFrame) ? previousFrame.map(String) : []
+  const rawNext = Array.isArray(nextFrame) ? nextFrame.map(String) : []
+  const history = rawHistory.filter((line) => !isTransientTerminalStatus(line))
+  const prior = rawPrior.filter((line) => !isTransientTerminalStatus(line))
+  const next = rawNext.filter((line) => !isTransientTerminalStatus(line))
+  const activeStatus = rawNext.filter(isTransientTerminalStatus).slice(-1)
+  if (rawNext.length === 0 || terminalLinesEqual(rawPrior, rawNext)) {
+    return [...history, ...activeStatus].slice(-limit)
+  }
+  if (history.length === 0) return [...next, ...activeStatus].slice(-limit)
 
   let appended
   if (sequenceIndex(prior, next) >= 0) {
@@ -69,7 +77,7 @@ export function mergeTerminalHistory(
         overlap > 0 ? next.slice(overlap) : next.slice(commonPrefixLength(prior, next))
     }
   }
-  return [...history, ...appended].slice(-limit)
+  return [...history, ...appended, ...activeStatus].slice(-limit)
 }
 
 async function mapWithConcurrency(values, concurrency, mapper) {

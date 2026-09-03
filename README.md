@@ -14,6 +14,8 @@ the primary view.
 - Re-reads every selected terminal's rendered screen every two seconds and rolls changed
   frames into a bounded lane history.
 - Adds terminal-style highlighting to the plain-text terminal data exposed by Orca's public CLI.
+- Groups prompts, replies, tool activity, and thinking into labeled conversation blocks.
+- Replaces animated thinking redraws in place instead of repeating them in lane history.
 - Preserves the last readable frame during transient failures and flags the lane while retrying.
 - Keeps a bounded rolling lane history so short post-send frames cannot collapse the scrollbar.
 - Preserves reading position and offers a **New output** jump when a lane changes above the fold.
@@ -22,6 +24,7 @@ the primary view.
   the Control Room input.
 - Sends a message or jumps directly to the native Orca terminal.
 - Persists lane names, strategist/manager roles, order, and column count.
+- Supports persistent per-lane resizing without changing the underlying PTY dimensions.
 - Binds only to `127.0.0.1` and protects its local API with a random session token.
 - Replaces an outdated companion automatically when a newer plugin version opens.
 
