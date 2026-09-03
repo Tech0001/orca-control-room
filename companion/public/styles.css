@@ -10,6 +10,8 @@
   --working: #fbbf24;
   --done: #34d399;
   --danger: #fb7185;
+  --terminal-background: #0c0d10;
+  --terminal-foreground: #d5d8df;
   --columns: 6;
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
 }
@@ -163,6 +165,10 @@ main {
   font-size: 10px;
 }
 
+.lane-meta.stale {
+  color: var(--working);
+}
+
 .status-dot {
   width: 8px;
   height: 8px;
@@ -218,8 +224,76 @@ main {
 }
 
 .screen {
-  flex: 1;
+  width: 100%;
+  height: 100%;
+  background: var(--terminal-background);
+  color: var(--terminal-foreground);
+  font-variant-ligatures: none;
+  scrollbar-color: #4b5260 var(--terminal-background);
+}
+
+.screen-shell {
+  position: relative;
   min-height: 0;
+  flex: 1;
+  background: var(--terminal-background);
+}
+
+.terminal-line {
+  display: block;
+  min-height: 1.3em;
+  border-left: 2px solid transparent;
+  padding: 0 4px;
+}
+
+.terminal-prompt {
+  margin: 2px 0;
+  border-left-color: #94a3b8;
+  background: #292d35;
+  color: #f8fafc;
+}
+
+.terminal-heading {
+  color: #e2e8f0;
+  font-weight: 700;
+}
+
+.terminal-bullet {
+  color: #cbd5e1;
+}
+
+.terminal-frame,
+.terminal-status {
+  color: #7c8493;
+}
+
+.terminal-command {
+  color: #7dd3fc;
+}
+
+.terminal-success {
+  color: #6ee7b7;
+}
+
+.terminal-warning {
+  color: #fcd34d;
+}
+
+.terminal-error {
+  border-left-color: #fb7185;
+  background: rgb(127 29 29 / 18%);
+  color: #fda4af;
+}
+
+.jump-latest {
+  position: absolute;
+  right: 10px;
+  bottom: 9px;
+  border-color: #075985;
+  background: #0c4a6e;
+  box-shadow: 0 5px 18px rgb(0 0 0 / 45%);
+  color: #e0f2fe;
+  font-size: 10px;
 }
 
 .composer {

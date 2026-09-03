@@ -5,6 +5,7 @@ import { dirname, extname, join, normalize } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { bindLane, enrichTerminal, normalizeConfig } from './model.mjs'
 import { OrcaClient } from './orca-client.mjs'
+import { refreshBoundTerminalScreens } from './screen-cache.mjs'
 
 const root = dirname(fileURLToPath(import.meta.url))
 const publicRoot = join(root, 'public')
@@ -67,43 +68,15 @@ async function refreshSnapshot(force = false) {
   return await snapshotPromise
 }
 
-async function mapWithConcurrency(values, concurrency, mapper) {
-  const results = new Array(values.length)
-  let nextIndex = 0
-  async function worker() {
-    while (nextIndex < values.length) {
-      const index = nextIndex++
-      results[index] = await mapper(values[index], index)
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, worker))
-  return results
-}
-
-async function buildState() {
-  const snapshot = await refreshSnapshot()
+async function buildState(force = false) {
+  const snapshot = await refreshSnapshot(force)
   const terminals = snapshot.terminals.map((terminal) =>
     enrichTerminal(terminal, snapshot.worktrees)
   )
   const bound = config.lanes.map((lane) => ({ lane, terminal: bindLane(lane, terminals) }))
-  await mapWithConcurrency(bound, 4, async ({ terminal }) => {
-    if (!terminal?.connected || !handlePattern.test(terminal.handle)) return
-    const cached = screenCache.get(terminal.stableId)
-    if (cached?.lastOutputAt === terminal.lastOutputAt) return
-    try {
-      const screen = await orca.readScreen(terminal.handle)
-      screenCache.set(terminal.stableId, {
-        lastOutputAt: terminal.lastOutputAt,
-        lines: Array.isArray(screen.tail) ? screen.tail : [],
-        source: screen.source ?? 'unknown'
-      })
-    } catch (error) {
-      screenCache.set(terminal.stableId, {
-        lastOutputAt: terminal.lastOutputAt,
-        lines: [],
-        error: error instanceof Error ? error.message : String(error)
-      })
-    }
+  await refreshBoundTerminalScreens(bound, screenCache, (handle) => orca.readScreen(handle), {
+    concurrency: 4,
+    canRead: (terminal) => handlePattern.test(terminal.handle)
   })
   return {
     connected: true,
@@ -196,7 +169,7 @@ const server = createServer(async (request, response) => {
         return json(response, 200, { ok: true })
       }
       if (request.method === 'GET' && url.pathname === '/api/state') {
-        return json(response, 200, await buildState())
+        return json(response, 200, await buildState(url.searchParams.get('force') === '1'))
       }
       if (request.method === 'GET' && url.pathname === '/api/transcript') {
         const handle = validatedHandle(url.searchParams.get('handle'))

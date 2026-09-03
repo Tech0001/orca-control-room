@@ -11,7 +11,11 @@ the primary view.
 
 - Runs alongside stock Orca and uses only the public `orca` CLI.
 - Pins a stable roster across Orca restarts, rebinding runtime terminal handles automatically.
-- Shows every selected terminal's current rendered screen in a persistent grid.
+- Re-reads every selected terminal's rendered screen every two seconds, without relying on
+  Orca's occasionally stale activity timestamp.
+- Adds terminal-style highlighting to the plain-text screen data exposed by Orca's public CLI.
+- Preserves the last readable frame during transient failures and flags the lane while retrying.
+- Preserves reading position and offers a **New output** jump when a lane changes above the fold.
 - Opens retained terminal history on demand.
 - Sends a message or jumps directly to the native Orca terminal.
 - Persists lane names, strategist/manager roles, order, and column count.
