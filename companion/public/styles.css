@@ -30,6 +30,7 @@ body {
 
 button,
 input,
+textarea,
 select {
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -397,20 +398,30 @@ main {
 }
 
 .composer {
-  display: flex;
-  align-items: center;
+  display: grid;
+  align-items: end;
+  grid-template-areas:
+    "attachments attachments attachments"
+    "input image send"
+    "status status status";
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 6px;
   padding: 6px;
   border-top: 1px solid var(--border);
 }
 
 .send-status {
-  max-width: 180px;
+  grid-area: status;
+  max-width: 100%;
   overflow: hidden;
   color: var(--muted);
   font-size: 10px;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+}
+
+.send-status:empty {
+  display: none;
 }
 
 .send-status.success {
@@ -421,11 +432,83 @@ main {
   color: var(--danger);
 }
 
-.composer input,
+.composer textarea,
 #terminal-filter {
   min-width: 0;
-  flex: 1;
   padding: 6px 8px;
+}
+
+.composer textarea {
+  grid-area: input;
+  width: 100%;
+  height: 34px;
+  min-height: 34px;
+  max-height: 140px;
+  overflow-y: hidden;
+  line-height: 1.35;
+  resize: none;
+}
+
+.composer .attachment-input {
+  display: none;
+}
+
+.attach-image {
+  grid-area: image;
+}
+
+.composer button[type='submit'] {
+  grid-area: send;
+}
+
+.attachment-list {
+  display: flex;
+  grid-area: attachments;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 1px;
+}
+
+.attachment-list[hidden] {
+  display: none;
+}
+
+.attachment-item {
+  display: grid;
+  min-width: 0;
+  max-width: 170px;
+  align-items: center;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 5px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #111318;
+}
+
+.attachment-item img {
+  width: 34px;
+  height: 34px;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.attachment-item span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-item .remove-attachment {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 17px;
 }
 
 .lane-resize-handle {

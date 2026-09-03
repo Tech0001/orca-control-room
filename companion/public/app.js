@@ -1,3 +1,4 @@
+import { composeAgentPrompt, shouldSubmitComposer } from './composer-format.js'
 import { terminalMessageBlocks } from './terminal-format.js'
 
 const params = new URLSearchParams(location.search)
@@ -13,6 +14,8 @@ const cards = new Map()
 const laneSizeStorageKey = 'orca-control-room:lane-sizes:v1'
 const minimumLaneWidth = 340
 const minimumLaneHeight = 280
+const maximumAttachmentCount = 4
+const maximumAttachmentBytes = 12 * 1024 * 1024
 let latestState = null
 let editorLanes = []
 let polling = false
@@ -44,6 +47,89 @@ function setSendStatus(card, message, tone = '') {
   clearTimeout(card.sendStatusTimer)
   card.sendStatus.textContent = message
   card.sendStatus.className = 'send-status' + (tone ? ' ' + tone : '')
+}
+
+function resizeComposer(textarea) {
+  textarea.style.height = 'auto'
+  const nextHeight = Math.min(140, Math.max(34, textarea.scrollHeight))
+  textarea.style.height = `${nextHeight}px`
+  textarea.style.overflowY = textarea.scrollHeight > 140 ? 'auto' : 'hidden'
+}
+
+function updateComposerAvailability(card) {
+  const disabled = card.sending || !card.lane?.terminal?.writable
+  card.input.disabled = disabled
+  card.fileInput.disabled = disabled
+  card.attachButton.disabled = disabled
+  card.sendButton.disabled = disabled
+}
+
+function renderAttachments(card) {
+  card.attachmentList.hidden = card.attachments.length === 0
+  const items = card.attachments.map((attachment, index) => {
+    const item = document.createElement('div')
+    item.className = 'attachment-item'
+    const preview = document.createElement('img')
+    preview.src = attachment.previewUrl
+    preview.alt = ''
+    const name = document.createElement('span')
+    name.textContent = attachment.file.name || `Pasted image ${index + 1}`
+    const remove = document.createElement('button')
+    remove.type = 'button'
+    remove.className = 'remove-attachment'
+    remove.textContent = '×'
+    remove.title = 'Remove image'
+    remove.setAttribute('aria-label', `Remove ${name.textContent}`)
+    remove.addEventListener('click', () => {
+      URL.revokeObjectURL(attachment.previewUrl)
+      card.attachments.splice(index, 1)
+      renderAttachments(card)
+      card.input.focus()
+    })
+    item.append(preview, name, remove)
+    return item
+  })
+  card.attachmentList.replaceChildren(...items)
+}
+
+function addAttachments(card, files) {
+  for (const file of files) {
+    if (card.attachments.length >= maximumAttachmentCount) {
+      setSendStatus(card, `Up to ${maximumAttachmentCount} images per message`, 'error')
+      break
+    }
+    if (!file.type.startsWith('image/')) {
+      setSendStatus(card, 'Only image attachments are supported', 'error')
+      continue
+    }
+    if (file.size > maximumAttachmentBytes) {
+      setSendStatus(card, `${file.name || 'Image'} exceeds 12 MiB`, 'error')
+      continue
+    }
+    card.attachments.push({
+      file,
+      previewUrl: URL.createObjectURL(file),
+      uploaded: null
+    })
+  }
+  renderAttachments(card)
+}
+
+function clearAttachments(card) {
+  for (const attachment of card.attachments) URL.revokeObjectURL(attachment.previewUrl)
+  card.attachments = []
+  renderAttachments(card)
+}
+
+async function uploadAttachment(attachment) {
+  if (attachment.uploaded) return attachment.uploaded
+  const result = await api('/api/attachment', {
+    method: 'POST',
+    headers: { 'content-type': attachment.file.type || 'application/octet-stream' },
+    body: attachment.file
+  })
+  attachment.uploaded = result.attachment
+  return attachment.uploaded
 }
 
 function isNearBottom(element) {
@@ -172,9 +258,16 @@ function createCard(lane) {
     children: node.querySelector('.children'),
     unread: node.querySelector('.unread'),
     composer: node.querySelector('.composer'),
-    input: node.querySelector('.composer input'),
+    input: node.querySelector('.composer textarea'),
+    attachmentList: node.querySelector('.attachment-list'),
+    attachButton: node.querySelector('.attach-image'),
+    fileInput: node.querySelector('.attachment-input'),
+    sendButton: node.querySelector('.composer button[type="submit"]'),
     sendStatus: node.querySelector('.send-status'),
     resizeHandle: node.querySelector('.lane-resize-handle'),
+    lane,
+    attachments: [],
+    sending: false,
     screenText: null,
     sendStatusTimer: null
   }
@@ -206,27 +299,57 @@ function createCard(lane) {
     })
   })
   node.querySelector('.transcript').addEventListener('click', () => void showTranscript(card.lane))
+  card.input.addEventListener('input', () => resizeComposer(card.input))
+  card.input.addEventListener('keydown', (event) => {
+    if (!shouldSubmitComposer(event)) return
+    event.preventDefault()
+    card.composer.requestSubmit()
+  })
+  card.input.addEventListener('paste', (event) => {
+    const images = [...(event.clipboardData?.items || [])]
+      .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+      .map((item) => item.getAsFile())
+      .filter(Boolean)
+    if (images.length === 0) return
+    event.preventDefault()
+    addAttachments(card, images)
+  })
+  card.attachButton.addEventListener('click', () => card.fileInput.click())
+  card.fileInput.addEventListener('change', () => {
+    addAttachments(card, [...card.fileInput.files])
+    card.fileInput.value = ''
+  })
   card.composer.addEventListener('submit', async (event) => {
     event.preventDefault()
     const current = card.lane?.terminal
     const text = card.input.value.trim()
-    if (!current || !text) return
-    card.input.disabled = true
-    setSendStatus(card, 'Sending…')
+    if (!current || (!text && card.attachments.length === 0) || card.sending) return
+    card.sending = true
+    updateComposerAvailability(card)
     try {
+      const uploaded = []
+      for (const [index, attachment] of card.attachments.entries()) {
+        setSendStatus(card, `Uploading image ${index + 1}/${card.attachments.length}…`)
+        uploaded.push(await uploadAttachment(attachment))
+      }
+      const prompt = composeAgentPrompt(text, uploaded)
+      setSendStatus(card, 'Delivering…')
       const result = await api('/api/send', {
         method: 'POST',
-        body: JSON.stringify({ handle: current.handle, text })
+        body: JSON.stringify({ handle: current.handle, text: prompt })
       })
       if (result.send?.accepted !== true) throw new Error('Orca did not accept the message')
       card.input.value = ''
+      resizeComposer(card.input)
+      clearAttachments(card)
       setSendStatus(card, 'Sent', 'success')
       card.sendStatusTimer = setTimeout(() => setSendStatus(card, ''), 2_000)
       void poll(true)
     } catch (error) {
       setSendStatus(card, error instanceof Error ? error.message : String(error), 'error')
     } finally {
-      card.input.disabled = false
+      card.sending = false
+      updateComposerAvailability(card)
       card.input.focus()
     }
   })
@@ -261,10 +384,7 @@ function updateCard(card, lane) {
   const childCount = terminal?.childCount ?? 0
   card.children.hidden = childCount === 0
   card.children.textContent = `${childCount} child${childCount === 1 ? '' : 'ren'}`
-  const inputDisabled = !terminal?.writable
-  const sendButton = card.composer.querySelector('button')
-  if (sendButton.disabled !== inputDisabled) sendButton.disabled = inputDisabled
-  if (card.input.disabled !== inputDisabled) card.input.disabled = inputDisabled
+  updateComposerAvailability(card)
   const nextLines = visibleLines(lane, terminal)
   const nextText = nextLines.join('\n')
   if (card.screenText !== nextText) {
@@ -300,6 +420,7 @@ function renderState(state) {
   const activeIds = new Set(state.lanes.map((lane) => lane.id))
   for (const [id, card] of cards) {
     if (!activeIds.has(id)) {
+      clearAttachments(card)
       card.node.remove()
       cards.delete(id)
     }

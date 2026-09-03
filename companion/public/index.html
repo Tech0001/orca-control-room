@@ -100,7 +100,21 @@
           <button class="jump-latest" type="button" hidden>New output ↓</button>
         </div>
         <form class="composer">
-          <input type="text" maxlength="4096" placeholder="Send a message…" />
+          <div class="attachment-list" hidden></div>
+          <textarea
+            rows="1"
+            maxlength="32000"
+            placeholder="Send a message… (Shift+Enter for a new line)"
+            aria-label="Message"
+          ></textarea>
+          <input
+            class="attachment-input"
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            multiple
+            hidden
+          />
+          <button class="attach-image" type="button" title="Paste an image or choose a file">Image</button>
           <span class="send-status" aria-live="polite"></span>
           <button type="submit">Send</button>
         </form>

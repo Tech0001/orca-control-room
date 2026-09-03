@@ -3,6 +3,11 @@ import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, extname, join, normalize } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  MAX_ATTACHMENT_BYTES,
+  cleanupAttachments,
+  saveClipboardImage
+} from './attachments.mjs'
 import { bindLane, enrichTerminal, normalizeConfig } from './model.mjs'
 import { OrcaClient } from './orca-client.mjs'
 import { mergeTerminalHistory, refreshBoundTerminalScreens } from './screen-cache.mjs'
@@ -10,7 +15,7 @@ import { CONTROL_ROOM_VERSION } from '../version.mjs'
 
 const root = dirname(fileURLToPath(import.meta.url))
 const publicRoot = join(root, 'public')
-const MAX_BODY_BYTES = 64 * 1024
+const MAX_JSON_BODY_BYTES = 256 * 1024
 const handlePattern = /^term_[A-Za-z0-9-]+$/
 const args = process.argv.slice(2)
 
@@ -111,10 +116,25 @@ async function readBody(request) {
   let size = 0
   for await (const chunk of request) {
     size += chunk.length
-    if (size > MAX_BODY_BYTES) throw new Error('Request body is too large')
+    if (size > MAX_JSON_BODY_BYTES) throw new Error('Request body is too large')
     chunks.push(chunk)
   }
   return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')
+}
+
+async function readAttachmentBody(request) {
+  const declaredSize = Number.parseInt(request.headers['content-length'] || '', 10)
+  if (Number.isFinite(declaredSize) && declaredSize > MAX_ATTACHMENT_BYTES) {
+    throw new Error('Image exceeds the 12 MiB limit')
+  }
+  const chunks = []
+  let size = 0
+  for await (const chunk of request) {
+    size += chunk.length
+    if (size > MAX_ATTACHMENT_BYTES) throw new Error('Image exceeds the 12 MiB limit')
+    chunks.push(chunk)
+  }
+  return Buffer.concat(chunks)
 }
 
 function authorized(request) {
@@ -155,7 +175,7 @@ async function serveStatic(url, response) {
     'content-length': body.length,
     'cache-control': devMode ? 'no-store' : 'no-cache',
     'content-security-policy':
-      "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+      "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
     'x-content-type-options': 'nosniff',
     'x-frame-options': 'DENY',
     'referrer-policy': 'no-referrer'
@@ -202,11 +222,16 @@ const server = createServer(async (request, response) => {
         assertMutationOrigin(request)
         const body = await readBody(request)
         const handle = validatedHandle(body.handle)
-        if (typeof body.text !== 'string' || !body.text.trim() || body.text.length > 4_096) {
-          throw new Error('Message must contain 1–4096 characters')
+        if (typeof body.text !== 'string' || !body.text.trim() || body.text.length > 32_000) {
+          throw new Error('Message must contain 1–32,000 characters')
         }
         const send = await orca.send(handle, body.text)
         return json(response, 200, { ok: true, send })
+      }
+      if (request.method === 'POST' && url.pathname === '/api/attachment') {
+        assertMutationOrigin(request)
+        const attachment = await saveClipboardImage(await readAttachmentBody(request))
+        return json(response, 201, { ok: true, attachment })
       }
       if (request.method === 'POST' && url.pathname === '/api/switch') {
         assertMutationOrigin(request)
@@ -225,6 +250,7 @@ const server = createServer(async (request, response) => {
 
 await readConfig()
 await mkdir(stateDirectory, { recursive: true })
+await cleanupAttachments().catch(() => undefined)
 await writeFile(
   sessionFile,
   `${JSON.stringify({
@@ -242,9 +268,15 @@ const idleTimer = setInterval(() => {
   if (!devMode && Date.now() - lastClientAt > 10 * 60_000) server.close()
 }, 30_000)
 idleTimer.unref()
+const attachmentCleanupTimer = setInterval(
+  () => void cleanupAttachments().catch(() => undefined),
+  60 * 60_000
+)
+attachmentCleanupTimer.unref()
 
 async function cleanExit() {
   clearInterval(idleTimer)
+  clearInterval(attachmentCleanupTimer)
   await rm(sessionFile, { force: true }).catch(() => undefined)
   process.exit(0)
 }

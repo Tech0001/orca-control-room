@@ -22,6 +22,8 @@ the primary view.
 - Opens retained terminal history on demand.
 - Waits for Orca's verified agent-prompt delivery result and displays failures without clearing
   the Control Room input.
+- Supports multiline prompts and pasted snippets: Enter sends, while Shift+Enter inserts a line.
+- Previews clipboard or file-picker images and sends their private local paths with the prompt.
 - Sends a message or jumps directly to the native Orca terminal.
 - Persists lane names, strategist/manager roles, order, and column count.
 - Supports persistent per-lane resizing without changing the underlying PTY dimensions.
@@ -40,6 +42,10 @@ the primary view.
 
 On Linux, the launcher opens Chromium in app mode when available and falls back to the default
 browser. The companion exits after ten minutes without an open client.
+
+Pasted images are written with user-only permissions under
+`/tmp/orca-control-room-attachments`, then expired after 24 hours. They stay on this computer
+unless the receiving agent explicitly uploads them somewhere.
 
 ## Run without installing the plugin
 

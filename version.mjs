@@ -1,1 +1,1 @@
-export const CONTROL_ROOM_VERSION = '0.3.0'
+export const CONTROL_ROOM_VERSION = '0.4.0'
