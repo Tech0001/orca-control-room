@@ -15,6 +15,8 @@ the primary view.
   frames into a bounded lane history.
 - Adds terminal-style highlighting to the plain-text terminal data exposed by Orca's public CLI.
 - Groups prompts, replies, tool activity, and thinking into labeled conversation blocks.
+- Filters Codex permission dialogs, usage notices, idle prompts, and other terminal-interface noise
+  out of the conversation view and retained lane history.
 - Replaces animated thinking redraws in place instead of repeating them in lane history.
 - Preserves the last readable frame during transient failures and flags the lane while retrying.
 - Keeps a bounded rolling lane history so short post-send frames cannot collapse the scrollbar.
@@ -39,6 +41,28 @@ the primary view.
 4. Open **Search** (`Ctrl+J` on Linux), search for **Control Room**, and run
    **Control Room: Open Director Console**.
 5. Choose **Manage lanes**, add the long-lived terminals, assign roles, and save the layout.
+
+## Launch Control Room
+
+Open Orca's **Search** (`Ctrl+J` on Linux), search for **Control Room**, and run
+**Control Room: Open Director Console**. The current plugin does not add a permanent sidebar icon
+or toolbar button.
+
+After installing an update, close the Control Room window, toggle the plugin off and back on, and
+open the command again. The active version is displayed beside **Orca Control Room** in the header.
+
+## Share the plugin
+
+Control Room appears as one item in Orca, but the plugin itself is this entire repository folder.
+To share it, publish or archive the complete `orca-control-room` folder. The recipient can clone or
+extract it, then follow the development-plugin installation steps above. It has no third-party npm
+dependencies to install.
+
+Each person's pinned lanes, roles, layout, and runtime session are kept outside the repository in
+their own `~/.config/orca-control-room` directory. Sharing the plugin therefore does not share your
+local agent roster or Control Room state.
+
+## Local operation and images
 
 On Linux, the launcher opens Chromium in app mode when available and falls back to the default
 browser. The companion exits after ten minutes without an open client.
