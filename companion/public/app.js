@@ -1,6 +1,7 @@
 import {
   composeAgentPrompt,
   shouldFocusComposer,
+  shouldRestoreComposerFocus,
   shouldSubmitComposer,
   terminalInputAction
 } from './composer-format.js'
@@ -28,6 +29,14 @@ let polling = false
 let forcePollQueued = false
 let pollFailureCount = 0
 let automaticRetryAt = 0
+let userInteractionEpoch = 0
+
+document.addEventListener('pointerdown', () => {
+  userInteractionEpoch += 1
+}, true)
+document.addEventListener('keydown', () => {
+  userInteractionEpoch += 1
+}, true)
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -470,6 +479,7 @@ function createCard(lane) {
     const current = card.lane?.terminal
     const text = card.input.value.trim()
     if (!current || (!text && card.attachments.length === 0) || card.sending) return
+    const interactionAtSend = userInteractionEpoch
     card.sending = true
     updateComposerAvailability(card)
     try {
@@ -496,7 +506,15 @@ function createCard(lane) {
     } finally {
       card.sending = false
       updateComposerAvailability(card)
-      card.input.focus()
+      if (
+        shouldRestoreComposerFocus(
+          interactionAtSend,
+          userInteractionEpoch,
+          document.hasFocus()
+        )
+      ) {
+        card.input.focus()
+      }
     }
   })
   cards.set(lane.id, card)

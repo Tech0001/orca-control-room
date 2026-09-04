@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
   composeAgentPrompt,
   shouldFocusComposer,
+  shouldRestoreComposerFocus,
   shouldSubmitComposer,
   terminalInputAction
 } from '../companion/public/composer-format.js'
@@ -26,6 +27,12 @@ test('conversation clicks focus the composer unless text is selected', () => {
   assert.equal(shouldFocusComposer(null), true)
   assert.equal(shouldFocusComposer({ isCollapsed: true }), true)
   assert.equal(shouldFocusComposer({ isCollapsed: false }), false)
+})
+
+test('completed sends restore focus only when the user has not moved elsewhere', () => {
+  assert.equal(shouldRestoreComposerFocus(4, 4, true), true)
+  assert.equal(shouldRestoreComposerFocus(4, 5, true), false)
+  assert.equal(shouldRestoreComposerFocus(4, 4, false), false)
 })
 
 test('direct terminal mode maps menu navigation and printable input', () => {

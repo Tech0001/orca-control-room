@@ -17,6 +17,10 @@ export function shouldFocusComposer(selection) {
   return !selection || selection.isCollapsed
 }
 
+export function shouldRestoreComposerFocus(interactionAtSend, currentInteraction, documentFocused) {
+  return documentFocused && interactionAtSend === currentInteraction
+}
+
 const directTerminalKeys = new Set([
   'ArrowUp',
   'ArrowDown',
