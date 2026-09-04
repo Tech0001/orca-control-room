@@ -131,7 +131,13 @@ function setTerminalMode(card, enabled) {
   resizeComposer(card.input)
   card.composer.classList.toggle('terminal-input-mode', enabled)
   card.terminalModeButton.setAttribute('aria-pressed', String(enabled))
-  card.terminalModeButton.textContent = enabled ? 'Keys On' : 'Keys'
+  card.terminalModeButton.setAttribute(
+    'aria-label',
+    enabled ? 'Disable direct terminal keys' : 'Enable direct terminal keys'
+  )
+  card.terminalModeButton.title = enabled
+    ? 'Direct terminal keys enabled — click to return to normal messages'
+    : 'Send typing and navigation keys directly to this terminal'
   card.input.placeholder = enabled ? 'Type directly in terminal…' : 'Send a message…'
   card.input.setAttribute('aria-label', enabled ? 'Direct terminal input' : 'Message')
   card.sendButton.textContent = enabled ? 'Enter' : 'Send'

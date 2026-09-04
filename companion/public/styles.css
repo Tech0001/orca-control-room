@@ -461,6 +461,28 @@ main {
   grid-area: keys;
 }
 
+.composer .terminal-mode,
+.composer .attach-image {
+  display: inline-flex;
+  width: 29px;
+  height: 29px;
+  align-items: center;
+  align-self: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.composer .terminal-mode svg,
+.composer .attach-image svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
 .composer.terminal-input-mode {
   border-top-color: #0369a1;
   background: rgb(7 89 133 / 10%);
