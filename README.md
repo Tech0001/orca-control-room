@@ -97,9 +97,6 @@ Then open `http://127.0.0.1:47831/?token=development-only-token`.
 npm test
 ```
 
-The persistent-agent operating model is documented in
-[docs/OPERATING_MODEL.md](docs/OPERATING_MODEL.md).
-
 ## Status
 
 This is an early local prototype. It intentionally avoids Orca's private terminal stream protocol
