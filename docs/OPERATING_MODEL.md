@@ -17,21 +17,6 @@ tasks.
 The Control Room keeps strategists and managers spatially stable. Worker counts and alerts roll up
 to their owning lane.
 
-## Memory is a system, not a session
-
-Long-lived sessions preserve valuable tacit context, but they are not durable storage. Compaction,
-model changes, crashes, and context limits can all damage that memory. Each department should also
-maintain a small durable memory pack in the project itself:
-
-- `CHARTER.md` — authority, boundaries, invariants, and explicit non-goals.
-- `STATE.md` — current truth, active work, blockers, and next decisions.
-- `DECISIONS.md` — dated decisions with rationale and affected interfaces.
-- `INTERFACES.md` — contracts with other departments and named owners.
-- `HANDOFF.md` — a restart-quality summary refreshed at meaningful checkpoints.
-
-The long-lived manager interprets and applies this material. The files make that manager
-recoverable instead of replacing its judgment.
-
 ## Coordination rules
 
 - A strategist may propose cross-department direction but does not silently rewrite a department's

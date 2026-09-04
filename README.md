@@ -97,7 +97,8 @@ Then open `http://127.0.0.1:47831/?token=development-only-token`.
 npm test
 ```
 
-The operating and memory model is documented in [docs/OPERATING_MODEL.md](docs/OPERATING_MODEL.md).
+The persistent-agent operating model is documented in
+[docs/OPERATING_MODEL.md](docs/OPERATING_MODEL.md).
 
 ## Status
 
