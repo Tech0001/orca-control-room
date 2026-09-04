@@ -3,6 +3,7 @@
   "version": "0.5.2",
   "private": true,
   "description": "A persistent director console for long-lived Orca agent lanes.",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "start": "node companion/server.mjs --dev",
