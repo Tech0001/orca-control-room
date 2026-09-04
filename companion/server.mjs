@@ -10,7 +10,11 @@ import {
 } from './attachments.mjs'
 import { bindLane, enrichTerminal, normalizeConfig } from './model.mjs'
 import { OrcaClient } from './orca-client.mjs'
-import { mergeTerminalHistory, refreshBoundTerminalScreens } from './screen-cache.mjs'
+import {
+  createStaggeredScreenRefresher,
+  mergeTerminalHistory,
+  refreshBoundTerminalScreens
+} from './screen-cache.mjs'
 import { resolveTerminalInput } from './terminal-input.mjs'
 import { CONTROL_ROOM_VERSION } from '../version.mjs'
 
@@ -18,6 +22,9 @@ const root = dirname(fileURLToPath(import.meta.url))
 const publicRoot = join(root, 'public')
 const MAX_JSON_BODY_BYTES = 256 * 1024
 const handlePattern = /^term_[A-Za-z0-9-]+$/
+const SNAPSHOT_CACHE_MS = 4_000
+const SCREEN_REFRESH_INTERVAL_MS = 4_000
+const SCREEN_REFRESH_GAP_MS = 120
 const args = process.argv.slice(2)
 
 function argument(name, fallback) {
@@ -42,6 +49,23 @@ let lastSnapshot = { terminals: [], worktrees: [] }
 let lastSnapshotAt = 0
 let snapshotPromise = null
 const screenCache = new Map()
+const screenRefresher = createStaggeredScreenRefresher(
+  (binding) =>
+    refreshBoundTerminalScreens(
+      [binding],
+      screenCache,
+      (handle) => orca.readScreen(handle),
+      {
+        concurrency: 1,
+        canRead: (terminal) => handlePattern.test(terminal.handle),
+        readTranscript: (handle) => orca.readLive(handle, 500)
+      }
+    ),
+  {
+    gapMs: SCREEN_REFRESH_GAP_MS,
+    minimumIntervalMs: SCREEN_REFRESH_INTERVAL_MS
+  }
+)
 
 async function readConfig() {
   try {
@@ -60,7 +84,7 @@ async function writeConfig(next) {
 }
 
 async function refreshSnapshot(force = false) {
-  if (!force && Date.now() - lastSnapshotAt < 1_000) return lastSnapshot
+  if (!force && Date.now() - lastSnapshotAt < SNAPSHOT_CACHE_MS) return lastSnapshot
   if (snapshotPromise) return await snapshotPromise
   snapshotPromise = orca
     .snapshot()
@@ -81,13 +105,7 @@ async function buildState(force = false) {
     enrichTerminal(terminal, snapshot.worktrees)
   )
   const bound = config.lanes.map((lane) => ({ lane, terminal: bindLane(lane, terminals) }))
-  await refreshBoundTerminalScreens(bound, screenCache, (handle) => orca.readScreen(handle), {
-    // Each public CLI screen read has process startup cost. Run one per lane in
-    // parallel so an eleven-agent room completes in one wave instead of three.
-    concurrency: 12,
-    canRead: (terminal) => handlePattern.test(terminal.handle),
-    readTranscript: (handle) => orca.readLive(handle, 500)
-  })
+  screenRefresher.schedule(bound, { force })
   return {
     connected: true,
     version: CONTROL_ROOM_VERSION,
@@ -234,6 +252,7 @@ const server = createServer(async (request, response) => {
           throw new Error('Message must contain 1–32,000 characters')
         }
         const send = await orca.send(handle, body.text)
+        screenRefresher.prioritizeHandle(handle)
         return json(response, 200, { ok: true, send })
       }
       if (request.method === 'POST' && url.pathname === '/api/input') {
@@ -241,6 +260,7 @@ const server = createServer(async (request, response) => {
         const body = await readBody(request)
         const handle = validatedHandle(body.handle)
         const send = await orca.sendInput(handle, resolveTerminalInput(body))
+        screenRefresher.prioritizeHandle(handle)
         return json(response, 200, { ok: true, send })
       }
       if (request.method === 'POST' && url.pathname === '/api/attachment') {
@@ -292,6 +312,7 @@ attachmentCleanupTimer.unref()
 async function cleanExit() {
   clearInterval(idleTimer)
   clearInterval(attachmentCleanupTimer)
+  screenRefresher.stop()
   await rm(sessionFile, { force: true }).catch(() => undefined)
   process.exit(0)
 }

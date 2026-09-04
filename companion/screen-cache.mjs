@@ -162,6 +162,137 @@ async function mapWithConcurrency(values, concurrency, mapper) {
   return results
 }
 
+export function createStaggeredScreenRefresher(
+  refresh,
+  {
+    gapMs = 120,
+    minimumIntervalMs = 4_000,
+    now = () => Date.now(),
+    wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+    onError = () => undefined
+  } = {}
+) {
+  if (typeof refresh !== 'function') throw new TypeError('A screen refresh function is required')
+
+  const entries = new Map()
+  const queue = []
+  const pending = new Set()
+  const idleWaiters = []
+  let activeId = null
+  let running = false
+  let stopped = false
+
+  function resolveIdle() {
+    if (running || queue.length > 0) return
+    for (const resolve of idleWaiters.splice(0)) resolve()
+  }
+
+  function enqueue(id, priority = false) {
+    if (pending.has(id) || stopped) return false
+    pending.add(id)
+    if (priority) queue.unshift(id)
+    else queue.push(id)
+    return true
+  }
+
+  async function pump() {
+    if (running || stopped) return
+    running = true
+    while (!stopped && queue.length > 0) {
+      const id = queue.shift()
+      const entry = entries.get(id)
+      if (!entry) {
+        pending.delete(id)
+        continue
+      }
+
+      activeId = id
+      try {
+        await refresh(entry.binding)
+      } catch (error) {
+        onError(error, entry.binding)
+      }
+      entry.lastCompletedAt = now()
+      activeId = null
+      pending.delete(id)
+
+      if (entry.rerun && !stopped) {
+        entry.rerun = false
+        enqueue(id, true)
+      }
+      if (!stopped && queue.length > 0 && gapMs > 0) await wait(gapMs)
+    }
+    running = false
+    activeId = null
+    resolveIdle()
+  }
+
+  function schedule(bindings, { force = false } = {}) {
+    if (stopped) return
+    const liveIds = new Set()
+    const timestamp = now()
+    for (const binding of bindings) {
+      const id = binding?.terminal?.stableId
+      if (!id) continue
+      liveIds.add(id)
+      const entry = entries.get(id) ?? {
+        binding,
+        lastCompletedAt: null,
+        rerun: false
+      }
+      entry.binding = binding
+      entries.set(id, entry)
+      if (
+        force ||
+        entry.lastCompletedAt === null ||
+        timestamp - entry.lastCompletedAt >= minimumIntervalMs
+      ) {
+        enqueue(id)
+      }
+    }
+
+    for (const id of entries.keys()) {
+      if (!liveIds.has(id) && id !== activeId) entries.delete(id)
+    }
+    void pump()
+  }
+
+  function prioritizeHandle(handle) {
+    if (stopped) return false
+    const match = [...entries.entries()].find(([, entry]) => entry.binding?.terminal?.handle === handle)
+    if (!match) return false
+    const [id, entry] = match
+    if (activeId === id) {
+      entry.rerun = true
+      return true
+    }
+
+    const queuedIndex = queue.indexOf(id)
+    if (queuedIndex >= 0) {
+      queue.splice(queuedIndex, 1)
+      queue.unshift(id)
+    } else {
+      enqueue(id, true)
+    }
+    void pump()
+    return true
+  }
+
+  function whenIdle() {
+    if (!running && queue.length === 0) return Promise.resolve()
+    return new Promise((resolve) => idleWaiters.push(resolve))
+  }
+
+  function stop() {
+    stopped = true
+    queue.length = 0
+    pending.clear()
+    if (!running) resolveIdle()
+  }
+
+  return { schedule, prioritizeHandle, whenIdle, stop }
+}
+
 export async function refreshBoundTerminalScreens(
   bindings,
   screenCache,

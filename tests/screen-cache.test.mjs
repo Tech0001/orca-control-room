@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  createStaggeredScreenRefresher,
   mergeTerminalHistory,
   refreshBoundTerminalScreens,
   restoreTranscriptParagraphs
@@ -12,6 +13,104 @@ const terminal = {
   connected: true,
   lastOutputAt: 42
 }
+
+function binding(id) {
+  return {
+    terminal: {
+      ...terminal,
+      stableId: id,
+      handle: `term_${id}`
+    }
+  }
+}
+
+test('staggered screen refreshes never overlap', async () => {
+  let active = 0
+  let maximumActive = 0
+  const order = []
+  const refresher = createStaggeredScreenRefresher(
+    async ({ terminal: current }) => {
+      active += 1
+      maximumActive = Math.max(maximumActive, active)
+      order.push(current.stableId)
+      await Promise.resolve()
+      active -= 1
+    },
+    { gapMs: 0, minimumIntervalMs: 0 }
+  )
+
+  refresher.schedule([binding('one'), binding('two'), binding('three')], { force: true })
+  await refresher.whenIdle()
+
+  assert.equal(maximumActive, 1)
+  assert.deepEqual(order, ['one', 'two', 'three'])
+})
+
+test('staggered screen refreshes respect each lane interval', async () => {
+  let clock = 1_000
+  const reads = []
+  const refresher = createStaggeredScreenRefresher(
+    async ({ terminal: current }) => reads.push(current.stableId),
+    { gapMs: 0, minimumIntervalMs: 100, now: () => clock }
+  )
+  const lanes = [binding('one'), binding('two')]
+
+  refresher.schedule(lanes)
+  await refresher.whenIdle()
+  refresher.schedule(lanes)
+  await refresher.whenIdle()
+  assert.deepEqual(reads, ['one', 'two'])
+
+  clock += 100
+  refresher.schedule(lanes)
+  await refresher.whenIdle()
+  assert.deepEqual(reads, ['one', 'two', 'one', 'two'])
+})
+
+test('a recently used terminal moves to the front of the staggered queue', async () => {
+  const order = []
+  let releaseFirst
+  const firstBlocked = new Promise((resolve) => {
+    releaseFirst = resolve
+  })
+  const refresher = createStaggeredScreenRefresher(
+    async ({ terminal: current }) => {
+      order.push(current.stableId)
+      if (current.stableId === 'one') await firstBlocked
+    },
+    { gapMs: 0, minimumIntervalMs: 0 }
+  )
+
+  refresher.schedule([binding('one'), binding('two'), binding('three')], { force: true })
+  assert.equal(refresher.prioritizeHandle('term_three'), true)
+  releaseFirst()
+  await refresher.whenIdle()
+
+  assert.deepEqual(order, ['one', 'three', 'two'])
+})
+
+test('repeated state polls do not duplicate queued screen refreshes', async () => {
+  const order = []
+  let releaseFirst
+  const firstBlocked = new Promise((resolve) => {
+    releaseFirst = resolve
+  })
+  const refresher = createStaggeredScreenRefresher(
+    async ({ terminal: current }) => {
+      order.push(current.stableId)
+      if (current.stableId === 'one') await firstBlocked
+    },
+    { gapMs: 0, minimumIntervalMs: 0 }
+  )
+  const lanes = [binding('one'), binding('two')]
+
+  refresher.schedule(lanes, { force: true })
+  refresher.schedule(lanes, { force: true })
+  releaseFirst()
+  await refresher.whenIdle()
+
+  assert.deepEqual(order, ['one', 'two'])
+})
 
 test('re-reads visible screens when Orca activity metadata does not change', async () => {
   const cache = new Map()

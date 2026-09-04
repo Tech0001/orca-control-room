@@ -13,8 +13,10 @@ the primary view.
 
 - Runs alongside stock Orca and uses only the public `orca` CLI.
 - Pins a stable roster across Orca restarts, rebinding runtime terminal handles automatically.
-- Re-reads every selected terminal's rendered screen every two seconds and rolls changed
-  frames into a bounded lane history.
+- Refreshes selected terminal screens on a staggered four-second cadence and rolls changed frames
+  into a bounded lane history.
+- Runs only one screen read at a time and caches terminal discovery to avoid synchronized CLI
+  process bursts in large rooms.
 - Adds terminal-style highlighting to the plain-text terminal data exposed by Orca's public CLI.
 - Groups prompts, replies, tool activity, and thinking into labeled conversation blocks.
 - Restores paragraph breaks that Orca's rendered-screen projection omits by aligning the live
