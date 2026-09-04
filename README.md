@@ -27,6 +27,10 @@ the primary view.
 - Waits for Orca's verified agent-prompt delivery result and displays failures without clearing
   the Control Room input.
 - Supports multiline prompts and pasted snippets: Enter sends, while Shift+Enter inserts a line.
+- Offers an explicit per-lane **Keys** mode that passes typing, pasted commands, arrows, Enter,
+  Escape, Tab, Backspace, and navigation keys directly to the terminal through Orca's public CLI.
+  This makes slash-command menus and other interactive terminal prompts usable without leaving
+  Control Room.
 - Focuses a lane's compact composer when its conversation area is clicked, while preserving text
   selection in the transcript.
 - Previews clipboard or file-picker images and sends their private local paths with the prompt.
@@ -74,6 +78,10 @@ browser. The companion exits after ten minutes without an open client.
 Pasted images are written with user-only permissions under
 `/tmp/orca-control-room-attachments`, then expired after 24 hours. They stay on this computer
 unless the receiving agent explicitly uploads them somewhere.
+
+**Keys** mode directly controls the selected terminal and can therefore run commands. Its blue
+active state is deliberately separate from normal message delivery; switch it off to return to
+agent prompts and image attachments.
 
 ## Run without installing the plugin
 

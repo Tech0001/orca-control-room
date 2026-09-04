@@ -401,10 +401,10 @@ main {
   display: grid;
   align-items: end;
   grid-template-areas:
-    "attachments attachments attachments"
-    "input image send"
-    "status status status";
-  grid-template-columns: minmax(0, 1fr) auto auto;
+    "attachments attachments attachments attachments"
+    "input keys image send"
+    "status status status status";
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   gap: 6px;
   padding: 6px;
   border-top: 1px solid var(--border);
@@ -455,6 +455,25 @@ main {
 
 .attach-image {
   grid-area: image;
+}
+
+.terminal-mode {
+  grid-area: keys;
+}
+
+.composer.terminal-input-mode {
+  border-top-color: #0369a1;
+  background: rgb(7 89 133 / 10%);
+}
+
+.composer.terminal-input-mode .terminal-mode {
+  border-color: #0ea5e9;
+  background: #075985;
+  color: #e0f2fe;
+}
+
+.composer.terminal-input-mode .attach-image {
+  display: none;
 }
 
 .composer button {

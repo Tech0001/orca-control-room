@@ -52,6 +52,42 @@ test('returns the accepted send receipt', async () => {
   assert.equal(timeout, 60_000)
 })
 
+test('keeps direct terminal text and Enter as separate CLI input operations', async () => {
+  const calls = []
+  const client = new OrcaClient('unused')
+  client.run = async (args, timeout) => {
+    calls.push({ args, timeout })
+    return { send: { accepted: true, bytesWritten: 1 } }
+  }
+
+  await client.sendInput('term_123', { text: '/model' })
+  await client.sendInput('term_123', { enter: true })
+
+  assert.deepEqual(calls, [
+    {
+      args: ['terminal', 'send', '--terminal', 'term_123', '--text', '/model'],
+      timeout: 60_000
+    },
+    {
+      args: ['terminal', 'send', '--terminal', 'term_123', '--enter'],
+      timeout: 60_000
+    }
+  ])
+})
+
+test('sends terminal interrupts without combining them with text', async () => {
+  const client = new OrcaClient('unused')
+  let args
+  client.run = async (nextArgs) => {
+    args = nextArgs
+    return { send: { accepted: true, bytesWritten: 1 } }
+  }
+
+  await client.sendInput('term_123', { interrupt: true })
+
+  assert.deepEqual(args, ['terminal', 'send', '--terminal', 'term_123', '--interrupt'])
+})
+
 test('surfaces a refused send with its reason', async () => {
   const client = new OrcaClient('unused')
   client.run = async () => ({

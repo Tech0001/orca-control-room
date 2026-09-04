@@ -133,6 +133,25 @@ export class OrcaClient {
     return result.send
   }
 
+  async sendInput(handle, input) {
+    const args = ['terminal', 'send', '--terminal', handle]
+    if (typeof input.text === 'string') args.push('--text', input.text)
+    else if (input.enter === true) args.push('--enter')
+    else if (input.interrupt === true) args.push('--interrupt')
+    else throw new Error('Invalid direct terminal input')
+
+    const result = await this.run(args, AGENT_SEND_TIMEOUT_MS)
+    if (result.send?.accepted !== true) {
+      const reason = result.send?.refusedReason
+        ? ' (' + result.send.refusedReason + ')'
+        : result.send?.agentSessionRefusal
+          ? ' (agent session is owned by another client)'
+          : ''
+      throw new Error('Orca refused the terminal input' + reason)
+    }
+    return result.send
+  }
+
   async switchTo(handle) {
     return await this.run(['terminal', 'switch', '--terminal', handle])
   }

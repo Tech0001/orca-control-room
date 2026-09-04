@@ -11,6 +11,7 @@ import {
 import { bindLane, enrichTerminal, normalizeConfig } from './model.mjs'
 import { OrcaClient } from './orca-client.mjs'
 import { mergeTerminalHistory, refreshBoundTerminalScreens } from './screen-cache.mjs'
+import { resolveTerminalInput } from './terminal-input.mjs'
 import { CONTROL_ROOM_VERSION } from '../version.mjs'
 
 const root = dirname(fileURLToPath(import.meta.url))
@@ -233,6 +234,13 @@ const server = createServer(async (request, response) => {
           throw new Error('Message must contain 1–32,000 characters')
         }
         const send = await orca.send(handle, body.text)
+        return json(response, 200, { ok: true, send })
+      }
+      if (request.method === 'POST' && url.pathname === '/api/input') {
+        assertMutationOrigin(request)
+        const body = await readBody(request)
+        const handle = validatedHandle(body.handle)
+        const send = await orca.sendInput(handle, resolveTerminalInput(body))
         return json(response, 200, { ok: true, send })
       }
       if (request.method === 'POST' && url.pathname === '/api/attachment') {

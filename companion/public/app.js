@@ -1,7 +1,8 @@
 import {
   composeAgentPrompt,
   shouldFocusComposer,
-  shouldSubmitComposer
+  shouldSubmitComposer,
+  terminalInputAction
 } from './composer-format.js'
 import { terminalMessageBlocks } from './terminal-format.js'
 
@@ -20,6 +21,7 @@ const minimumLaneWidth = 340
 const minimumLaneHeight = 280
 const maximumAttachmentCount = 4
 const maximumAttachmentBytes = 12 * 1024 * 1024
+const terminalTextBatchDelay = 40
 let latestState = null
 let editorLanes = []
 let polling = false
@@ -63,9 +65,114 @@ function resizeComposer(textarea) {
 function updateComposerAvailability(card) {
   const disabled = card.sending || !card.lane?.terminal?.writable
   card.input.disabled = disabled
-  card.fileInput.disabled = disabled
-  card.attachButton.disabled = disabled
+  card.fileInput.disabled = disabled || card.terminalMode
+  card.attachButton.disabled = disabled || card.terminalMode
+  card.terminalModeButton.disabled = disabled
   card.sendButton.disabled = disabled
+}
+
+function scheduleTerminalPoll(card) {
+  clearTimeout(card.terminalPollTimer)
+  card.terminalPollTimer = setTimeout(() => void poll(true), 120)
+}
+
+function enqueueTerminalInput(card, input) {
+  const terminal = card.lane?.terminal
+  if (!terminal?.writable) {
+    setSendStatus(card, 'Terminal is not writable', 'error')
+    return Promise.resolve()
+  }
+  const request = card.terminalSendChain
+    .catch(() => undefined)
+    .then(async () => {
+      const result = await api('/api/input', {
+        method: 'POST',
+        body: JSON.stringify({ handle: terminal.handle, ...input })
+      })
+      if (result.send?.accepted !== true) throw new Error('Orca did not accept the terminal input')
+      scheduleTerminalPoll(card)
+    })
+  card.terminalSendChain = request
+  request.catch((error) => {
+    setSendStatus(card, error instanceof Error ? error.message : String(error), 'error')
+  })
+  return request
+}
+
+function flushTerminalText(card) {
+  clearTimeout(card.terminalTextTimer)
+  card.terminalTextTimer = null
+  if (!card.terminalTextBuffer) return card.terminalSendChain
+  const text = card.terminalTextBuffer
+  card.terminalTextBuffer = ''
+  return enqueueTerminalInput(card, { text })
+}
+
+function queueTerminalText(card, text) {
+  if (!text) return
+  card.terminalTextBuffer += text
+  clearTimeout(card.terminalTextTimer)
+  card.terminalTextTimer = setTimeout(() => flushTerminalText(card), terminalTextBatchDelay)
+}
+
+function queueTerminalKey(card, key) {
+  flushTerminalText(card)
+  return enqueueTerminalInput(card, { key })
+}
+
+function setTerminalMode(card, enabled) {
+  if (enabled && (card.input.value.length > 0 || card.attachments.length > 0)) {
+    setSendStatus(card, 'Send or clear the current draft before enabling Keys', 'error')
+    return
+  }
+  if (!enabled) flushTerminalText(card)
+  card.terminalMode = enabled
+  card.input.value = ''
+  resizeComposer(card.input)
+  card.composer.classList.toggle('terminal-input-mode', enabled)
+  card.terminalModeButton.setAttribute('aria-pressed', String(enabled))
+  card.terminalModeButton.textContent = enabled ? 'Keys On' : 'Keys'
+  card.input.placeholder = enabled ? 'Type directly in terminal…' : 'Send a message…'
+  card.input.setAttribute('aria-label', enabled ? 'Direct terminal input' : 'Message')
+  card.sendButton.textContent = enabled ? 'Enter' : 'Send'
+  setSendStatus(card, '')
+  updateComposerAvailability(card)
+  card.input.focus()
+}
+
+function handleTerminalKeydown(event, card) {
+  const hasSelection = card.input.selectionStart !== card.input.selectionEnd
+  const action = terminalInputAction(event, hasSelection)
+  if (!action) return
+  if (action.preventDefault) event.preventDefault()
+  if (action.text) {
+    queueTerminalText(card, action.text)
+    return
+  }
+  queueTerminalKey(card, action.key)
+  if (action.key === 'Enter' || action.key === 'Interrupt') {
+    card.input.value = ''
+    resizeComposer(card.input)
+  }
+}
+
+function pasteTerminalText(event, card) {
+  const text = event.clipboardData?.getData('text/plain') || ''
+  const hasImage = [...(event.clipboardData?.items || [])].some(
+    (item) => item.kind === 'file' && item.type.startsWith('image/')
+  )
+  if (!text && hasImage) {
+    event.preventDefault()
+    setSendStatus(card, 'Switch off Keys to send images', 'error')
+    return
+  }
+  if (!text) return
+  event.preventDefault()
+  const start = card.input.selectionStart ?? card.input.value.length
+  const end = card.input.selectionEnd ?? start
+  card.input.setRangeText(text, start, end, 'end')
+  resizeComposer(card.input)
+  queueTerminalText(card, text)
 }
 
 function renderAttachments(card) {
@@ -265,6 +372,7 @@ function createCard(lane) {
     input: node.querySelector('.composer textarea'),
     attachmentList: node.querySelector('.attachment-list'),
     attachButton: node.querySelector('.attach-image'),
+    terminalModeButton: node.querySelector('.terminal-mode'),
     fileInput: node.querySelector('.attachment-input'),
     sendButton: node.querySelector('.composer button[type="submit"]'),
     sendStatus: node.querySelector('.send-status'),
@@ -272,6 +380,11 @@ function createCard(lane) {
     lane,
     attachments: [],
     sending: false,
+    terminalMode: false,
+    terminalTextBuffer: '',
+    terminalTextTimer: null,
+    terminalPollTimer: null,
+    terminalSendChain: Promise.resolve(),
     screenText: null,
     sendStatusTimer: null
   }
@@ -310,11 +423,19 @@ function createCard(lane) {
   node.querySelector('.transcript').addEventListener('click', () => void showTranscript(card.lane))
   card.input.addEventListener('input', () => resizeComposer(card.input))
   card.input.addEventListener('keydown', (event) => {
+    if (card.terminalMode) {
+      handleTerminalKeydown(event, card)
+      return
+    }
     if (!shouldSubmitComposer(event)) return
     event.preventDefault()
     card.composer.requestSubmit()
   })
   card.input.addEventListener('paste', (event) => {
+    if (card.terminalMode) {
+      pasteTerminalText(event, card)
+      return
+    }
     const images = [...(event.clipboardData?.items || [])]
       .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
       .map((item) => item.getAsFile())
@@ -323,6 +444,9 @@ function createCard(lane) {
     event.preventDefault()
     addAttachments(card, images)
   })
+  card.terminalModeButton.addEventListener('click', () => {
+    setTerminalMode(card, !card.terminalMode)
+  })
   card.attachButton.addEventListener('click', () => card.fileInput.click())
   card.fileInput.addEventListener('change', () => {
     addAttachments(card, [...card.fileInput.files])
@@ -330,6 +454,13 @@ function createCard(lane) {
   })
   card.composer.addEventListener('submit', async (event) => {
     event.preventDefault()
+    if (card.terminalMode) {
+      if (card.sending) return
+      queueTerminalKey(card, 'Enter')
+      card.input.value = ''
+      resizeComposer(card.input)
+      return
+    }
     const current = card.lane?.terminal
     const text = card.input.value.trim()
     if (!current || (!text && card.attachments.length === 0) || card.sending) return
@@ -429,6 +560,8 @@ function renderState(state) {
   const activeIds = new Set(state.lanes.map((lane) => lane.id))
   for (const [id, card] of cards) {
     if (!activeIds.has(id)) {
+      clearTimeout(card.terminalTextTimer)
+      clearTimeout(card.terminalPollTimer)
       clearAttachments(card)
       card.node.remove()
       cards.delete(id)
