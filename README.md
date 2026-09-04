@@ -7,6 +7,8 @@ Unlike a task dashboard, Control Room keeps planning strategists and department 
 even when they are idle. Short-lived workers roll up beneath their manager instead of taking over
 the primary view.
 
+![Orca Control Room showing a persistent multi-agent workspace](docs/images/control-room-overview.png)
+
 ## Current prototype
 
 - Runs alongside stock Orca and uses only the public `orca` CLI.
@@ -40,30 +42,47 @@ the primary view.
 - Binds only to `127.0.0.1` and protects its local API with a random session token.
 - Replaces an outdated companion automatically when a newer plugin version opens.
 
-## Install as a development plugin
+## Install
 
-1. In Orca, open **Settings → Plugins** and enable the plugin system.
-2. Under **Development plugins**, add this repository folder.
-3. Review and enable **Orca Control Room**. The plugin contains a trusted Node worker because it
-   launches the local companion process.
-4. Open **Search** (`Ctrl+J` on Linux), search for **Control Room**, and run
+1. Clone or download this repository to the computer running Orca. For example:
+
+   ```bash
+   git clone https://github.com/Tech0001/orca-control-room.git
+   ```
+
+2. In Orca, open **Settings → Plugins** and turn on the experimental **Plugin system**.
+3. Expand **Development**, enter the absolute path to the cloned `orca-control-room` folder, and
+   select **Add path**.
+
+   ![Orca plugin settings with the Development path and Control Room enable switch highlighted](docs/images/install-development-plugin.png)
+
+4. Review the requested permissions and enable **Orca Control Room**.
+5. Open **Search** (`Ctrl+J` on Linux), search for **Director Console**, and run
    **Control Room: Open Director Console**.
-5. Choose **Manage lanes**, add the long-lived terminals, assign roles, and save the layout.
+
+   ![Launching Control Room from Orca Search](docs/images/launch-control-room.png)
+
+6. Choose **Manage lanes**, add the long-lived terminals, assign roles, and save the layout.
+
+> [!IMPORTANT]
+> Control Room includes a local Node worker that launches its companion process. Orca workers run
+> as normal processes on your computer, so review the repository before enabling it.
 
 ## Launch Control Room
 
-Open Orca's **Search** (`Ctrl+J` on Linux), search for **Control Room**, and run
+Open Orca's **Search** (`Ctrl+J` on Linux), search for **Director Console**, and run
 **Control Room: Open Director Console**. The current plugin does not add a permanent sidebar icon
 or toolbar button.
 
-After installing an update, close the Control Room window, toggle the plugin off and back on, and
-open the command again. The active version is displayed beside **Orca Control Room** in the header.
+To update, pull the latest repository changes, close the Control Room window, toggle the plugin off
+and back on, and open the command again. The active version is displayed beside
+**Orca Control Room** in the header.
 
 ## Share the plugin
 
 Control Room appears as one item in Orca, but the plugin itself is this entire repository folder.
 To share it, publish or archive the complete `orca-control-room` folder. The recipient can clone or
-extract it, then follow the development-plugin installation steps above. It has no third-party npm
+extract it, then follow the installation steps above. It has no third-party npm
 dependencies to install.
 
 Each person's pinned lanes, roles, layout, and runtime session are kept outside the repository in
