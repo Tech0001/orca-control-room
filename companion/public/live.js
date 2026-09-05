@@ -123,8 +123,14 @@ class TerminalPanel {
         return false
       }
       const mac = /Mac/.test(navigator.platform)
-      if ((mac ? event.metaKey : event.ctrlKey && event.shiftKey) && event.code === 'KeyC' && this.term.hasSelection()) {
-        void navigator.clipboard.writeText(this.term.getSelection()).catch(() => notice('Copy failed; use the browser copy menu'))
+      if ((mac ? event.metaKey : event.ctrlKey && event.shiftKey) && !event.altKey && event.code === 'KeyC') {
+        // Returning false only stops xterm; explicitly cancel Chrome's inspect shortcut too.
+        // Consume Copy even without a selection so it can never become terminal Ctrl+C.
+        event.preventDefault()
+        event.stopPropagation()
+        if (this.term.hasSelection()) {
+          void navigator.clipboard.writeText(this.term.getSelection()).catch(() => notice('Copy failed; use the browser copy menu'))
+        } else notice('Select terminal text to copy')
         return false
       }
       if ((mac ? event.metaKey : event.ctrlKey && event.shiftKey) && event.code === 'KeyV') return false
