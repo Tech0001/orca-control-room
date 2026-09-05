@@ -21,6 +21,7 @@ Existing live-terminal installations keep their pairing and layout when updating
 - Independent input queues, so a slow send to one terminal does not block the other.
 - Output in one lane does not focus it or interrupt typing in the other lane.
 - Reconnection restores Orca's terminal snapshot into the existing tile.
+- Unavailable lanes show a warning and retain their last screen, with a **Reopen in Orca** action for the saved tab.
 - Image paste/file selection stores a private local file and inserts its quoted path into the
   terminal prompt. Press Enter yourself to submit. Agent support for image paths still applies.
 - Closing this view detaches its connections; it never sends a terminal close/kill command.
@@ -103,6 +104,26 @@ The initial/reconnected scrollback is limited to the snapshot Orca provides. New
 retained by xterm up to 10,000 lines. A reconnect replaces that view with a fresh snapshot.
 Unconfirmed input is never automatically replayed; check the native prompt before resending it.
 
+If Orca or its terminal daemon stops, a retained screen is **not** evidence of a live agent.
+The header counts connected, writable terminal views separately from unavailable lanes;
+“Live” does not mean the agent is currently working. Metadata is checked every 20 seconds
+and on returning to the window; stream disconnects trigger an earlier check. Transport
+heartbeats also detect dead connections. Unavailable lanes disable typing but keep their
+last screen selectable for reference.
+
+When Orca is reachable, **Reopen in Orca** opens that lane's exact saved tab and split pane
+using Orca's normal desktop restore behavior. It may change the selected tab in Orca.
+Control Room follows the restored terminal handle automatically, keeping the lane's name,
+position, and size. The button never sends a prompt, invents a resume command, creates a
+replacement tab, or kills another session. Orca controls whether a saved agent resumes;
+if it returns a shell or needs confirmation, inspect that tab in Orca before proceeding.
+An already-writable terminal only needs its view reconnected.
+
+If Orca itself cannot be reached, start/reopen Orca first; Control Room retries its
+connection without restarting agents. Missing or ambiguous saved tabs require selecting
+the correct terminal in **Manage lanes**. A failed recovery is reported, not retried
+automatically. This handles disconnection and recovery; it does not prevent Orca crashes.
+
 This integration uses **internal Orca RPC**, not a stable terminal plugin API.
 Protocol changes in stock Orca may require updating `companion/live-rpc.mjs` or the terminal
 subscription adapter. No Orca fork, patched application, or tmux session is required.
@@ -134,6 +155,8 @@ The browser test uses system Chromium (`CHROMIUM_PATH` overrides `/usr/bin/chrom
 isolated encrypted test runtime. It checks 0/1/2/11/14 lanes, persistent ordering and names,
 split-pane identities, input routing, ANSI output, clipboard shortcuts, focus, scrollback,
 reconnects, maximize/restore, authentication, and detach-only cleanup.
+Recovery checks cover stale handles, missing PTYs, native saved-tab activation, disabled
+offline input, metadata outages, concurrent clicks, and no automatic agent restarts.
 These automated fixtures do not replace testing the adapter against the installed stock Orca
 after pairing. The original readable-text renderer remains as reference code;
 the default launcher uses `companion/live-server.mjs`.

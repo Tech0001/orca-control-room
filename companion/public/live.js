@@ -6,11 +6,28 @@ if (token) sessionStorage.setItem('live-token', token)
 history.replaceState(null, '', location.pathname)
 const panels = new Map()
 let state = null
-let updating = false
+let updating = null
+let metadataError = ''
 let noticeTimer
 let laneDraft = []
 const savedValue = key => { try { return JSON.parse(localStorage.getItem(key) || 'null') } catch { return null } }
 const saveValue = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)) } catch {} }
+const writable = terminal => terminal?.connected === true && terminal?.writable === true
+
+function connectionStatus() {
+  if (metadataError) {
+    $('connection').textContent = 'Orca unavailable · retrying'
+    $('connection').title = metadataError
+    $('connection').className = 'connection error'
+    return
+  }
+  const live = [...panels.values()].filter(panel => panel.ready).length
+  const total = state?.lanes.length || 0
+  $('connection').textContent = !state?.paired ? 'Pairing needed' :
+    total ? `${live} live${total > live ? ` · ${total - live} unavailable` : ` ${total === 1 ? 'lane' : 'lanes'}`}` : '0 lanes'
+  $('connection').title = 'Live means a connected, writable terminal—not that the agent is currently working.'
+  $('connection').className = `connection ${total > live ? 'error' : 'online'}`
+}
 
 function layout() {
   const count = Math.max(1, state?.lanes.length || 1)
@@ -29,12 +46,12 @@ function notice(message) {
   noticeTimer = setTimeout(() => { $('notice').hidden = true }, 7000)
 }
 
-async function api(path, value) {
+async function api(path, value, timeout = 15000) {
   const response = await fetch(`/api/${path}`, {
     method: value === undefined ? 'GET' : 'POST',
     headers: { 'x-control-room-token': token, ...(value === undefined ? {} : { 'content-type': 'application/json' }) },
     ...(value === undefined ? {} : { body: JSON.stringify(value) }),
-    signal: AbortSignal.timeout(15000)
+    signal: AbortSignal.timeout(timeout)
   })
   const result = await response.json()
   if (!response.ok) throw new Error(result.error || 'Request failed')
@@ -64,6 +81,7 @@ class TerminalPanel {
     this.disposed = false
     this.pending = new Set()
     this.retryDelay = 1000
+    this.metadataHealthy = !metadataError
     this.el = document.createElement('section')
     this.el.className = 'live-lane'
     this.el.dataset.lane = String(index)
@@ -79,10 +97,20 @@ class TerminalPanel {
     const image = button('image', 'Attach image')
     image.onclick = () => this.file.click()
     const reconnect = button('reconnect', 'Reconnect terminal view')
-    reconnect.onclick = () => this.connect()
+    reconnect.onclick = async () => { await refresh(); if (!this.disposed) this.connect() }
     const maximize = button('maximize', 'Maximize or restore terminal')
     maximize.onclick = () => { this.el.classList.toggle('maximized'); this.term.focus(); this.resize(true) }
     header.append(image, reconnect, maximize)
+    this.banner = document.createElement('div')
+    this.banner.className = 'lane-availability'
+    this.banner.hidden = true
+    this.banner.setAttribute('role', 'status')
+    this.availability = document.createElement('span')
+    this.reopen = document.createElement('button')
+    this.reopen.textContent = 'Reopen in Orca'
+    this.reopen.title = 'Open this exact saved tab in Orca using its normal restore behavior. No message is sent.'
+    this.reopen.onclick = () => void this.recover()
+    this.banner.append(this.availability, this.reopen)
     this.host = document.createElement('div')
     this.host.className = 'terminal-host'
     const footer = document.createElement('footer')
@@ -98,7 +126,7 @@ class TerminalPanel {
       if (this.file.files[0]) void this.attachImage(this.file.files[0])
       this.file.value = ''
     }
-    this.el.append(header, this.host, footer, this.file)
+    this.el.append(header, this.banner, this.host, footer, this.file)
     $('live-grid').append(this.el)
     const saved = savedValue(`live-lane-size:${lane.id}`)
     if (saved?.width >= 340 && saved?.height >= 280) {
@@ -178,6 +206,8 @@ class TerminalPanel {
 
   update(lane, index) {
     const changedTerminal = this.lane.terminal?.handle !== lane.terminal?.handle
+    const changedAvailability = writable(this.lane.terminal) !== writable(lane.terminal) || !this.metadataHealthy
+    this.metadataHealthy = true
     this.lane = lane
     this.index = index
     this.el.dataset.lane = String(index)
@@ -186,7 +216,7 @@ class TerminalPanel {
     this.title.textContent = lane.name
     this.title.title = `${lane.name}\n${lane.worktreePath}`
     this.term.options.fontSize = state.fontSize
-    if (changedTerminal) this.connect()
+    if (changedTerminal || changedAvailability) this.connect()
   }
 
   size() {
@@ -204,16 +234,66 @@ class TerminalPanel {
     else if (message.type === 'input') this.error.textContent = 'Disconnected; input was not sent'
   }
 
-  setStatus(text, kind = '') { this.status.textContent = text; this.status.className = `status ${kind}` }
+  setStatus(text, kind = '') {
+    this.status.textContent = text; this.status.className = `status ${kind}`
+    connectionStatus()
+  }
 
-  connect() {
+  stopView() {
     clearTimeout(this.retryTimer)
-    if (this.ws) { this.ws.onclose = null; this.ws.close() }
-    if (this.pending.size) this.error.textContent = 'Some input was unconfirmed; check the terminal before resending'
-    this.pending.clear()
+    const ws = this.ws
+    this.ws = null
+    if (ws) { ws.onclose = null; ws.close() }
     this.ready = false
     this.term.options.disableStdin = true
-    if (!this.lane.terminal) { this.setStatus('Unavailable'); return }
+    if (this.pending.size) {
+      this.unconfirmed = true
+      this.error.textContent = 'Input was unconfirmed; it will not be replayed'
+    }
+    this.pending.clear()
+  }
+
+  unavailable(message, recoverable = false) {
+    this.stopView()
+    this.banner.hidden = false
+    this.availability.textContent = message
+    this.reopen.hidden = !recoverable
+    this.reopen.disabled = this.recovering === true
+    this.el.classList.add('unavailable')
+    this.setStatus(this.recovering ? 'Reopening…' : recoverable ? 'Unavailable' : 'Disconnected', 'error')
+  }
+
+  async recover() {
+    if (this.recovering) return
+    this.recovering = true
+    this.reopen.disabled = true
+    this.setStatus('Reopening…')
+    try {
+      const result = await api('reopen', { id: this.lane.id }, 45000)
+      if (this.disposed) return
+      this.error.textContent = ''
+      this.availability.textContent = result.alreadyActive ? 'Terminal is active; reconnecting…' :
+        'Saved tab opened in Orca. Waiting for its terminal; check Orca if it needs attention.'
+      await refresh()
+      if (!this.disposed && !this.ready && writable(this.lane.terminal)) this.connect()
+    } catch (error) {
+      if (!this.disposed) this.error.textContent = `${error.message} No input was replayed.`
+    } finally {
+      this.recovering = false
+      this.reopen.disabled = false
+      if (!this.disposed && !this.ready) this.setStatus('Unavailable', 'error')
+    }
+  }
+
+  connect() {
+    if (this.disposed) return
+    this.stopView()
+    if (!this.metadataHealthy) return this.unavailable('Cannot reach Orca. Last screen retained; reconnecting when Orca returns.')
+    if (!writable(this.lane.terminal)) return this.unavailable(
+      'Terminal is unavailable or read-only. Last screen retained.', true)
+    this.banner.hidden = false
+    this.availability.textContent = 'Connecting to the terminal. Any previous screen is not live yet.'
+    this.reopen.hidden = true
     this.setStatus('Connecting…')
     const ws = this.ws = new WebSocket(`ws://${location.host}/live`)
     ws.onopen = () => ws.send(JSON.stringify({ type: 'attach', token, handle: this.lane.terminal.handle, viewport: this.size() }))
@@ -226,10 +306,13 @@ class TerminalPanel {
         if (frame.cols && frame.rows) this.term.resize(frame.cols, frame.rows)
         const snapshot = typeof frame.serialized === 'string' ? frame.serialized : (frame.lines || []).join('\r\n')
         this.term.write(snapshot, () => {
+          if (this.ws !== ws || this.disposed || ws.readyState !== WebSocket.OPEN || !this.metadataHealthy || !writable(this.lane.terminal)) return
           this.restoring = false
           this.ready = true
           this.term.options.disableStdin = false
           this.retryDelay = 1000
+          this.banner.hidden = true
+          this.el.classList.remove('unavailable')
           this.setStatus('Live', 'online')
           if (!this.unconfirmed) this.error.textContent = ''
           this.dimensions.textContent = `${this.term.cols} × ${this.term.rows}${frame.truncated ? ' · partial scrollback' : ''}`
@@ -247,20 +330,19 @@ class TerminalPanel {
         if (!this.pending.size) { this.unconfirmed = false; this.error.textContent = '' }
       } else if (frame.type === 'error') {
         this.error.textContent = frame.message
+        this.ready = false
+        this.term.options.disableStdin = true
         this.setStatus('Connection issue', 'error')
       }
     }
-    ws.onerror = () => { this.setStatus('Connection issue', 'error') }
+    ws.onerror = () => { if (this.ws === ws) { this.ready = false; this.term.options.disableStdin = true; this.setStatus('Connection issue', 'error') } }
     ws.onclose = () => {
       if (this.disposed || this.ws !== ws) return
-      this.ready = false
-      this.term.options.disableStdin = true
-      this.setStatus('Reconnecting…')
-      if (this.pending.size) {
-        this.unconfirmed = true
-        this.error.textContent = 'Input was unconfirmed; it will not be replayed'
-      }
-      this.retryTimer = setTimeout(() => { void refresh(); this.connect() }, this.retryDelay)
+      this.unavailable('Terminal connection lost. Last screen retained; checking Orca…')
+      this.retryTimer = setTimeout(async () => {
+        await refresh()
+        if (!this.disposed && !this.ws) this.connect()
+      }, this.retryDelay)
       this.retryDelay = Math.min(15000, this.retryDelay * 2)
     }
   }
@@ -288,14 +370,17 @@ class TerminalPanel {
   }
 }
 
-export async function refresh() {
-  if (updating) return
-  updating = true
+export function refresh() {
+  if (updating) return updating
+  updating = refreshState().finally(() => { updating = null })
+  return updating
+}
+
+async function refreshState() {
   try {
     state = await api('state')
+    metadataError = ''
     $('version').textContent = `v${state.version}`
-    $('connection').textContent = state.paired ? `${state.lanes.length} live ${state.lanes.length === 1 ? 'lane' : 'lanes'}` : 'Pairing needed'
-    $('connection').className = `connection ${state.paired ? 'online' : ''}`
     if (!state.paired) { if (!$('settings').open && !$('lanes').open) $('settings').showModal(); return }
     $('empty').hidden = state.lanes.length !== 0
     const ids = new Set(state.lanes.map(lane => lane.id))
@@ -309,9 +394,12 @@ export async function refresh() {
     })
     layout()
   } catch (error) {
-    $('connection').textContent = error.message
-    $('connection').className = 'connection error'
-  } finally { updating = false }
+    metadataError = error.message
+    for (const panel of panels.values()) {
+      panel.metadataHealthy = false
+      panel.unavailable('Cannot reach Orca. Last screen retained; reconnecting when Orca returns.')
+    }
+  } finally { connectionStatus() }
 }
 
 function openLanes() {
@@ -434,5 +522,7 @@ $('save-lanes').onclick = async () => {
 }
 window.addEventListener('beforeunload', () => { for (const panel of panels.values()) panel.dispose() })
 window.addEventListener('resize', layout)
+window.addEventListener('online', () => void refresh())
+document.addEventListener('visibilitychange', () => { if (!document.hidden) void refresh() })
 void refresh()
 setInterval(refresh, 20000)

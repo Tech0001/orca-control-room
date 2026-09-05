@@ -8,9 +8,11 @@ export async function fakeRuntime({ count = 2 } = {}) {
   const token = randomUUID()
   const inputs = []
   const methods = []
+  const requests = []
   const subscriptions = new Set()
   const terminals = Array.from({ length: count }, (_, i) => String.fromCharCode(65 + i)).map(name => ({ handle: `term_test-${name}`, tabId: 'shared-tab', leafId: `leaf-${name}`,
     title: `Test ${name}`, worktreePath: '/test/shared-worktree', connected: true, writable: true }))
+  const savedTerminals = terminals.map(t => ({ ...t }))
   const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 })
   await new Promise(resolve => wss.once('listening', resolve))
   const pairing = { v: 1, endpoint: `ws://127.0.0.1:${wss.address().port}`, deviceToken: token,
@@ -34,9 +36,22 @@ export async function fakeRuntime({ count = 2 } = {}) {
         return
       }
       methods.push(request.method)
+      requests.push({ method: request.method, params: request.params })
       const { id, params: p = {} } = request
       if (request.method === 'status.get') emit(id, { app: { version: 'fixture' } })
       else if (request.method === 'terminal.list') emit(id, { terminals })
+      else if (request.method === 'session.tabs.list') emit(id, { tabs: savedTerminals.map(t => ({
+        type: 'terminal', id: `${t.tabId}::${t.leafId}`, parentTabId: t.tabId, leafId: t.leafId
+      })) })
+      else if (request.method === 'session.tabs.activate') {
+        const saved = savedTerminals.find(t => t.tabId === p.tabId && t.leafId === p.leafId)
+        if (saved) {
+          const existing = terminals.find(t => t.tabId === p.tabId && t.leafId === p.leafId)
+          if (existing) Object.assign(existing, { connected: true, writable: true, handle: `${saved.handle}-restored` })
+          else terminals.push({ ...saved, handle: `${saved.handle}-restored` })
+        }
+        emit(id, {})
+      }
       else if (request.method === 'terminal.subscribe') {
         subscriptions.add({ ws, terminal: p.terminal, id, emit })
         emit(id, { type: 'scrollback', cols: 80, rows: 24, serialized: `\x1b[2J\x1b[H\x1b[32mLIVE ${p.terminal}\x1b[0m\r\nNative prompt > ` })
@@ -56,7 +71,7 @@ export async function fakeRuntime({ count = 2 } = {}) {
       } else emit(id, {})
     })
   })
-  return { pairing, terminals, inputs, methods, subscriptions,
+  return { pairing, terminals, inputs, methods, requests, subscriptions,
     output(handle, chunk) { for (const sub of subscriptions) if (sub.terminal === handle) sub.emit(sub.id, { type: 'data', chunk }) },
     disconnectStreams() { for (const sub of subscriptions) sub.ws.close() },
     async close() { for (const ws of wss.clients) ws.terminate(); await new Promise(resolve => wss.close(resolve)) }

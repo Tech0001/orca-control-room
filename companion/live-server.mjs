@@ -10,6 +10,7 @@ import { saveClipboardImage, MAX_ATTACHMENT_BYTES } from './attachments.mjs'
 import { CONTROL_ROOM_VERSION as version } from '../version.mjs'
 import { isQueryReply } from './public/live-protocol.mjs'
 import { normalizeConfig, selectConfig, bindLane as bind, MAX_LANES } from './live-model.mjs'
+import { createLaneRecovery, isWritable } from './live-recovery.mjs'
 
 const root = dirname(fileURLToPath(import.meta.url))
 const args = process.argv.slice(2)
@@ -55,7 +56,7 @@ async function connectDirectory() {
   if (!directoryPromise) {
     directoryPromise = (async () => {
       const rpc = new LiveRpc(pairing, { endpoint: await currentEndpoint(pairing), onClose: () => {
-        if (directoryRpc === rpc) directoryRpc = null
+        if (directoryRpc === rpc) { directoryRpc = null; directoryCache = null }
       } })
       await rpc.connect()
       directoryRpc = rpc
@@ -66,10 +67,16 @@ async function connectDirectory() {
 }
 
 let directoryCache = null, terminalListPromise = null
-async function listTerminals() {
+async function listTerminals({ fresh = false } = {}) {
+  if (fresh) {
+    // Do not let an older in-flight inventory overwrite a recovery observation.
+    if (terminalListPromise) await terminalListPromise.catch(() => {})
+    directoryCache = null
+  }
   if (directoryCache && Date.now() - directoryCache.at < 1000) return directoryCache.terminals
   if (!terminalListPromise) terminalListPromise = (async () => {
-    const result = await (await connectDirectory()).request('terminal.list', { includeVisualLayouts: false })
+    const result = await (await connectDirectory()).request('terminal.list', { includeVisualLayouts: false,
+      ...(fresh ? { requireFreshPtyLiveness: true } : {}) })
     const terminals = (result.terminals || []).map(t => ({ handle: t.handle, tabId: t.tabId, leafId: t.leafId,
       worktreePath: t.worktreePath, title: t.title || t.worktreePath?.split('/').at(-1) || 'Terminal',
       connected: t.connected, writable: t.writable }))
@@ -78,6 +85,8 @@ async function listTerminals() {
   })().finally(() => { terminalListPromise = null })
   return terminalListPromise
 }
+
+const recoverLane = createLaneRecovery({ getLane: id => config.lanes.find(l => l.id === id), listTerminals, connectDirectory })
 
 function json(response, status, value) {
   response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' })
@@ -130,6 +139,13 @@ const server = createServer(async (request, response) => {
       if (request.method === 'GET' && path === '/api/roster') {
         try { return json(response, 200, normalizeConfig(JSON.parse(await readFile(rosterPath, 'utf8')))) }
         catch { return json(response, 200, normalizeConfig(null)) }
+      }
+      if (request.method === 'POST' && path === '/api/reopen') {
+        const { id } = await body(request)
+        if (typeof id !== 'string' || id.length > 100) throw new Error('Invalid lane identity')
+        const result = await recoverLane(id)
+        directoryCache = null
+        return json(response, 200, result)
       }
       if (request.method === 'POST' && path === '/api/pair') {
         const offer = parsePairing((await body(request)).code)
@@ -187,15 +203,23 @@ server.on('upgrade', (request, socket, head) => {
 
 wss.on('connection', ws => {
   let rpc = null, handle = null, ready = false, queued = 0
+  let alive = true
   let chain = Promise.resolve()
   const client = { type: 'desktop', id: `control-room-live-${randomUUID()}` }
   const timer = setTimeout(() => ws.close(1008, 'Authentication required'), 5000)
+  ws.on('pong', () => { alive = true })
+  const heartbeat = setInterval(() => {
+    if (!alive) return ws.terminate()
+    alive = false
+    if (ws.readyState === WebSocket.OPEN) ws.ping()
+  }, 15000)
+  heartbeat.unref()
   const emit = frame => {
     if (ws.readyState !== WebSocket.OPEN) return
     if (ws.bufferedAmount > 4 * 1024 * 1024) return ws.close(1013, 'Viewer fell behind; reconnecting')
     ws.send(JSON.stringify(frame))
   }
-  ws.on('close', () => { clearTimeout(timer); rpc?.close(); terminalSockets.delete(ws) })
+  ws.on('close', () => { clearTimeout(timer); clearInterval(heartbeat); rpc?.close(); terminalSockets.delete(ws) })
   ws.on('error', () => { rpc?.close() })
   ws.on('message', (bytes, binary) => {
     if (binary || ++queued > 128) { ws.close(1008, 'Input queue exceeded'); return }
@@ -209,6 +233,7 @@ wss.on('connection', ws => {
         const available = await listTerminals()
         const lane = config.lanes.find(l => bind(l, available)?.handle === message.handle)
         if (!lane) throw new Error('Choose this terminal in the experimental lane settings first')
+        if (!isWritable(bind(lane, available))) throw new Error('Terminal is not writable. Reopen its saved tab in Orca.')
         handle = message.handle
         ws.laneId = lane.id
         ws.terminalHandle = handle
@@ -222,7 +247,7 @@ wss.on('connection', ws => {
           capabilities: { desktopViewportClaims: 1 } }, frame => {
           if (frame.type === 'scrollback') ready = true
           emit(frame)
-          if (frame.type === 'end') ws.close(1000, 'Terminal ended')
+          if (frame.type === 'end') { ready = false; directoryCache = null; ws.close(1000, 'Terminal ended') }
         })
         return
       }

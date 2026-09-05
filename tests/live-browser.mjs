@@ -136,6 +136,52 @@ try {
   await page.waitForFunction(() => document.querySelectorAll('.status.online').length === 11)
   assert.ok(await page.evaluate(() => window.originalFirstPane === document.querySelector('[data-lane="1"]')), 'A replaced terminal handle keeps its existing tile and position')
   assert.ok(await page.locator('[data-lane="0"] .xterm-helper-textarea').evaluate(el => el === document.activeElement), 'Rebinding another lane does not steal focus')
+  // A daemon can leave the same handle in inventory, but no writable PTY.
+  const originalA = runtime.terminals[0]
+  originalA.connected = false; originalA.writable = false
+  const beforeRecoveryInputs = runtime.inputs.length
+  const beforeActivations = runtime.methods.filter(m => m === 'session.tabs.activate').length
+  await page.waitForTimeout(1100)
+  await page.evaluate(async () => (await import('/live.js')).refresh())
+  assert.equal(await page.locator('[data-lane="1"] .status').textContent(), 'Unavailable')
+  assert.equal(await page.locator('#connection').textContent(), '10 live · 1 unavailable')
+  assert.ok(await page.locator('[data-lane="1"] .lane-availability').isVisible())
+  await page.screenshot({ path: join(directory, 'unavailable-lane.png') })
+  assert.ok((await page.locator('[data-lane="1"] .xterm-screen').textContent()).includes('LIVE'), 'Offline lanes retain the last screen')
+  await page.locator('[data-lane="1"] .xterm-helper-textarea').focus()
+  await page.keyboard.type('must-not-send')
+  await page.waitForTimeout(100)
+  assert.equal(runtime.inputs.length, beforeRecoveryInputs, 'Typing into an unavailable pane never sends or buffers input')
+  assert.equal(runtime.methods.filter(m => m === 'session.tabs.activate').length, beforeActivations, 'Polling never restarts agents')
+  await page.locator('[data-lane="1"]').getByRole('button', { name: 'Reopen in Orca', exact: true }).click()
+  await page.waitForFunction(() => document.querySelectorAll('.status.online').length === 11)
+  assert.equal(runtime.inputs.length, beforeRecoveryInputs, 'Recovery never sends a continue/resume prompt')
+  const activation = runtime.requests.filter(r => r.method === 'session.tabs.activate').at(-1)
+  assert.deepEqual(activation.params, { worktree: 'path:/test/shared-worktree', tabId: originalA.tabId,
+    leafId: originalA.leafId, navigation: 'host', intent: 'user' })
+  assert.ok(await page.evaluate(() => window.originalFirstPane === document.querySelector('[data-lane="1"]')), 'Native recovery keeps the original tile and ordering')
+  // No inventory record at all: a saved tab still provides a recovery target.
+  const missing = runtime.terminals.splice(0, 1)[0]
+  await page.waitForTimeout(1100)
+  await page.evaluate(async () => (await import('/live.js')).refresh())
+  assert.equal(await page.locator('[data-lane="1"] .status').textContent(), 'Unavailable')
+  await page.locator('[data-lane="1"]').getByRole('button', { name: 'Reopen in Orca', exact: true }).click()
+  await page.waitForFunction(() => document.querySelectorAll('.status.online').length === 11)
+  // Restore fixture array order for subsequent roster checks.
+  const restoredIndex = runtime.terminals.findIndex(t => t.leafId === missing.leafId)
+  runtime.terminals.unshift(runtime.terminals.splice(restoredIndex, 1)[0])
+  // A metadata outage is unknown, not proof of a dead process, and must recover
+  // without restarting any agent when the service returns.
+  const activationCount = runtime.methods.filter(m => m === 'session.tabs.activate').length
+  await page.route('**/api/state', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'fixture Orca unavailable' }) }))
+  await page.evaluate(async () => (await import('/live.js')).refresh())
+  assert.equal(await page.locator('.status.online').count(), 0)
+  assert.equal(await page.locator('#connection').textContent(), 'Orca unavailable · retrying')
+  assert.equal(await page.getByRole('button', { name: 'Reopen in Orca', exact: true }).count(), 0, 'Unknown liveness does not offer a restart')
+  await page.unroute('**/api/state')
+  await page.evaluate(async () => (await import('/live.js')).refresh())
+  await page.waitForFunction(() => document.querySelectorAll('.status.online').length === 11)
+  assert.equal(runtime.methods.filter(m => m === 'session.tabs.activate').length, activationCount, 'Transport recovery only reattaches views')
   await page.reload()
   await page.waitForFunction(() => document.querySelectorAll('.status.online').length === 11)
   assert.equal(await page.locator('[data-lane="1"] h2').textContent(), 'Renamed first agent', 'Names and order survive reload')
@@ -191,7 +237,7 @@ try {
   await browser.close(); browser = null
   await new Promise(resolve => setTimeout(resolve, 200))
   assert.ok(!runtime.methods.some(m => /close|kill|stop/.test(m)), 'Closing the page must not stop agent terminals')
-  console.log('PASS: 0/1/2/11/14 lanes, persistent order and naming, safe rebinding, raw keys, clipboard, focus, scrollback, reconnect, maximize, authentication, detach-only cleanup')
+  console.log('PASS: 0/1/2/11/14 lanes, persistent order and naming, safe rebinding, raw keys, clipboard, focus, scrollback, reconnect, unavailable lanes, native recovery, outage recovery, maximize, authentication, detach-only cleanup')
   console.log(`Screenshot: ${join(directory, 'two-live-terminals.png')}`)
   console.log(`Eleven lanes: ${join(directory, 'eleven-live-terminals.png')}`)
 } catch (error) {

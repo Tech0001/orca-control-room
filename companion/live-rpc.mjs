@@ -94,6 +94,7 @@ export class LiveRpc {
       const ws = this.ws = new WebSocket(this.endpoint, { maxPayload: MAX_FRAME, perMessageDeflate: false })
       ws.on('error', () => fail(new Error('Cannot connect to Orca; check that it is running')))
       ws.on('close', () => {
+        this.closed = true
         clearTimeout(timeout)
         clearInterval(this.heartbeat)
         if (!settled) { settled = true; reject(new Error('Orca closed the pairing connection')) }
