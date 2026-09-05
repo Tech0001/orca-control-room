@@ -6,8 +6,9 @@ Each tile renders the real
 terminal stream with xterm.js and sends keyboard input directly to the existing Orca session.
 Agents remain managed by Orca, including their conversation history and orchestration tools.
 
-This branch is `experiment/live-terminals`. Keep it in a separate folder from your working
-Control Room installation. It has its own plugin ID, command, port, browser storage, and state.
+The live-terminal edition is the default on `main`. It keeps its own plugin ID, command,
+port, browser storage, and state, separate from the earlier readable-text edition.
+Existing live-terminal installations keep their pairing and layout when updating.
 
 ## Features
 
@@ -51,35 +52,39 @@ interrupts the agent. On macOS use **Cmd+C / Cmd+V** for clipboard actions. **Sh
 the same multiline fallback as Orca. Native slash-command menus, arrows, Enter, and Escape
 remain available. The toolbar **Refresh** reloads this view without stopping your agents.
 
-## Run alongside stable Control Room
+## Install and launch
 
-Requires Node.js 20 or newer and npm. In this experimental checkout:
+Requires Node.js 20 or newer and npm. Clone this repository's `main` branch, then run in
+the repository folder:
 
 ```bash
 npm ci --omit=dev --ignore-scripts
 npm run open
 ```
 
-`npm run open` starts the experimental companion and opens a browser window. You can also add
-this folder to Orca **Settings → Plugins → Development** and enable the separate
+`npm run open` starts the live-terminal companion and opens a browser window. You can also add
+this folder to Orca **Settings → Plugins → Development** and enable the
 **Control Room · Live Terminals** plugin. Search for
 **Control Room: Open Live Terminals** to launch it.
 
-Do not replace the stable plugin's development path with this one. Both can be installed.
+Enable only one development path for the live-terminal plugin. If you already installed
+the experimental live edition from another checkout, update that checkout or replace its
+development path with this folder rather than enabling duplicate copies. The earlier
+readable-text edition has a different plugin ID and can remain installed alongside it.
 
 ## One-time local pairing
 
 The live stream is behind Orca's authenticated WebSocket connection; the public plugin API
-does not expose it. Generate a dedicated connection for this experimental view:
+does not expose it. Generate a dedicated connection for this live view:
 
 1. In Orca, open **Settings → Remote Orca Servers**.
 2. Under **Share this Orca server**, choose **New Link**.
 3. Choose **This computer only**, then generate and copy the runtime pairing link. A browser
    link containing the pairing information also works.
-4. In the experimental Control Room window, open **Connection**, paste the link, and connect.
+4. In the live Control Room window, open **Connection**, paste the link, and connect.
 5. Use **Manage lanes** to select and arrange your existing Orca terminals.
 
-The prototype rejects network addresses and phone-only pairings. It connects to loopback on
+The live edition rejects network addresses and phone-only pairings. It connects to loopback on
 the same computer. A runtime pairing grants broad Orca runtime access: keep the link private,
 and use a dedicated grant so it can be revoked without affecting other clients.
 
@@ -98,13 +103,13 @@ The initial/reconnected scrollback is limited to the snapshot Orca provides. New
 retained by xterm up to 10,000 lines. A reconnect replaces that view with a fresh snapshot.
 Unconfirmed input is never automatically replayed; check the native prompt before resending it.
 
-This is a local experiment using **internal Orca RPC**, not a stable terminal plugin API.
+This integration uses **internal Orca RPC**, not a stable terminal plugin API.
 Protocol changes in stock Orca may require updating `companion/live-rpc.mjs` or the terminal
 subscription adapter. No Orca fork, patched application, or tmux session is required.
 
 ## Isolation
 
-| Item | Stable Control Room | Experimental live view |
+| Item | Earlier readable-text edition | Live-terminal edition (`main`) |
 | --- | --- | --- |
 | Plugin ID | `tech0001/control-room` | `tech0001/control-room-live-terminals` |
 | Port | `47831` | `47832` |
@@ -113,9 +118,9 @@ subscription adapter. No Orca fork, patched application, or tmux session is requ
 
 On a fresh installation, the live edition reads the original roster once to seed its own roster.
 Existing two-lane prototype settings migrate without replacing their selections or pairing.
-It never writes stable state or calls the stable companion's shutdown path.
+It never writes the earlier edition's state or calls that companion's shutdown path.
 Its image files are under its own `attachments` directory, with 24-hour expiry on subsequent
-image uploads. Disable this plugin and close its window to return to the stable version.
+image uploads. Closing the live view leaves your Orca agent sessions running.
 
 ## Verification
 
@@ -130,7 +135,7 @@ isolated encrypted test runtime. It checks 0/1/2/11/14 lanes, persistent orderin
 split-pane identities, input routing, ANSI output, clipboard shortcuts, focus, scrollback,
 reconnects, maximize/restore, authentication, and detach-only cleanup.
 These automated fixtures do not replace testing the adapter against the installed stock Orca
-after pairing. The original readable-text renderer remains in this branch as reference code;
-the experimental launcher uses `companion/live-server.mjs`.
+after pairing. The original readable-text renderer remains as reference code;
+the default launcher uses `companion/live-server.mjs`.
 
 MIT licensed. Dependencies retain their respective licenses.
