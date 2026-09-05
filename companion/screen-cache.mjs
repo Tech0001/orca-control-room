@@ -11,6 +11,92 @@ function comparableLine(value) {
   return String(value ?? '').trim().replace(/\s+/g, ' ')
 }
 
+function compactLine(value) {
+  return String(value ?? '').replace(/\s+/g, '')
+}
+
+function transcriptParagraphs(lines) {
+  const paragraphs = []
+  let current = []
+  for (const line of lines) {
+    if (line.trim()) {
+      current.push(line)
+    } else if (current.length > 0) {
+      paragraphs.push({ compact: compactLine(current.join('')) })
+      current = []
+    }
+  }
+  if (current.length > 0) paragraphs.push({ compact: compactLine(current.join('')) })
+  return paragraphs
+}
+
+function reflowedParagraphBreaks(screen, transcript) {
+  const paragraphs = transcriptParagraphs(transcript)
+  if (paragraphs.length < 2) return new Set()
+
+  // Work backwards so a visible terminal viewport aligns with the newest matching
+  // transcript text. Removing whitespace lets a rendered row match even when the
+  // transcript wrapped the same sentence (or URL) at different columns.
+  const matchedParagraph = new Map()
+  let paragraphCeiling = paragraphs.length - 1
+  let offsetCeiling = Number.POSITIVE_INFINITY
+  for (let screenIndex = screen.length - 1; screenIndex >= 0; screenIndex -= 1) {
+    const key = compactLine(screen[screenIndex])
+    if (!key) continue
+
+    for (let paragraphIndex = paragraphCeiling; paragraphIndex >= 0; paragraphIndex -= 1) {
+      const paragraph = paragraphs[paragraphIndex].compact
+      const maximumOffset =
+        paragraphIndex === paragraphCeiling && Number.isFinite(offsetCeiling)
+          ? Math.min(offsetCeiling, paragraph.length - key.length)
+          : paragraph.length - key.length
+      if (maximumOffset < 0) continue
+      const offset = paragraph.lastIndexOf(key, maximumOffset)
+      if (offset < 0) continue
+
+      matchedParagraph.set(screenIndex, paragraphIndex)
+      paragraphCeiling = paragraphIndex
+      offsetCeiling = offset - 1
+      break
+    }
+  }
+
+  const breaks = new Set()
+  let previousMatch
+  for (let screenIndex = 0; screenIndex < screen.length; screenIndex += 1) {
+    const paragraph = matchedParagraph.get(screenIndex)
+    if (paragraph === undefined) continue
+    if (
+      previousMatch &&
+      paragraph > previousMatch.paragraph &&
+      screen
+        .slice(previousMatch.screenIndex + 1, screenIndex)
+        .every((line) => line.trim())
+    ) {
+      breaks.add(screenIndex)
+    }
+    previousMatch = { paragraph, screenIndex }
+  }
+  return breaks
+}
+
+function listItemMarker(value) {
+  return String(value ?? '').trim().match(/^([-*+])\s/)?.[1] ?? null
+}
+
+function breakWouldSplitList(screen, index) {
+  const marker = listItemMarker(screen[index])
+  if (!marker) return false
+  for (let previousIndex = index - 1; previousIndex >= 0; previousIndex -= 1) {
+    const line = screen[previousIndex]
+    if (!line.trim()) return false
+    const previousMarker = listItemMarker(line)
+    if (previousMarker) return previousMarker === marker
+    if (/^[›❯●•](?:\s+|$)/.test(line.trim())) return false
+  }
+  return false
+}
+
 export function restoreTranscriptParagraphs(screenLines, transcriptLines) {
   const screen = Array.isArray(screenLines) ? screenLines.map(String) : []
   const transcript = Array.isArray(transcriptLines) ? transcriptLines.map(String) : []
@@ -56,7 +142,7 @@ export function restoreTranscriptParagraphs(screenLines, transcriptLines) {
     }
   }
 
-  const restored = []
+  const breaks = reflowedParagraphBreaks(screen, transcript)
   for (let index = 0; index < screen.length; index += 1) {
     const previousMatch = matchedTranscriptIndex.get(index - 1)
     const currentMatch = matchedTranscriptIndex.get(index)
@@ -66,48 +152,72 @@ export function restoreTranscriptParagraphs(screenLines, transcriptLines) {
       currentMatch > previousMatch + 1
     ) {
       const between = transcript.slice(previousMatch + 1, currentMatch)
-      if (between.length > 0 && between.every((line) => !line.trim())) restored.push('')
+      if (between.length > 0 && between.every((line) => !line.trim())) breaks.add(index)
+    }
+  }
+
+  const restored = []
+  for (let index = 0; index < screen.length; index += 1) {
+    if (
+      breaks.has(index) &&
+      restored.at(-1)?.trim() &&
+      !breakWouldSplitList(screen, index)
+    ) {
+      restored.push('')
     }
     restored.push(screen[index])
   }
   return restored
 }
 
-function sequenceIndex(haystack, needle) {
-  if (needle.length === 0 || needle.length > haystack.length) return -1
-  for (let start = 0; start <= haystack.length - needle.length; start += 1) {
-    let matches = true
-    for (let index = 0; index < needle.length; index += 1) {
-      if (haystack[start + index] !== needle[index]) {
-        matches = false
-        break
-      }
-    }
-    if (matches) return start
-  }
-  return -1
+function mergeLineKey(value) {
+  const key = comparableLine(value)
+  if (!key || /^[╭╮╰╯┌┐└┘├┤┬┴┼│┃─━┄┅┈┉]+$/.test(key)) return ''
+  return key
 }
 
-function suffixPrefixOverlap(previous, next) {
-  const maximum = Math.min(previous.length, next.length)
-  for (let length = maximum; length > 0; length -= 1) {
-    let matches = true
-    for (let index = 0; index < length; index += 1) {
-      if (previous[previous.length - length + index] !== next[index]) {
-        matches = false
-        break
-      }
+function matchingLinePairs(previous, next) {
+  const previousKeys = previous.map(mergeLineKey)
+  const nextKeys = next.map(mergeLineKey)
+  const lengths = Array.from(
+    { length: previous.length + 1 },
+    () => new Uint16Array(next.length + 1)
+  )
+  for (let previousIndex = 1; previousIndex <= previous.length; previousIndex += 1) {
+    for (let nextIndex = 1; nextIndex <= next.length; nextIndex += 1) {
+      lengths[previousIndex][nextIndex] =
+        previousKeys[previousIndex - 1] &&
+        previousKeys[previousIndex - 1] === nextKeys[nextIndex - 1]
+          ? lengths[previousIndex - 1][nextIndex - 1] + 1
+          : Math.max(lengths[previousIndex - 1][nextIndex], lengths[previousIndex][nextIndex - 1])
     }
-    if (matches) return length
   }
-  return 0
+
+  const pairs = []
+  let previousIndex = previous.length
+  let nextIndex = next.length
+  while (previousIndex > 0 && nextIndex > 0) {
+    if (
+      previousKeys[previousIndex - 1] &&
+      previousKeys[previousIndex - 1] === nextKeys[nextIndex - 1]
+    ) {
+      pairs.push({ previousIndex: previousIndex - 1, nextIndex: nextIndex - 1 })
+      previousIndex -= 1
+      nextIndex -= 1
+    } else if (lengths[previousIndex - 1][nextIndex] >= lengths[previousIndex][nextIndex - 1]) {
+      previousIndex -= 1
+    } else {
+      nextIndex -= 1
+    }
+  }
+  return pairs.reverse()
 }
 
-function commonPrefixLength(previous, next) {
-  const maximum = Math.min(previous.length, next.length)
-  let length = 0
-  while (length < maximum && previous[length] === next[length]) length += 1
-  return length
+function historyBeforeFrame(history, frame) {
+  if (frame.length === 0) return history
+  if (frame.length > history.length) return []
+  const candidate = history.slice(-frame.length)
+  return terminalLinesEqual(candidate, frame) ? history.slice(0, -frame.length) : []
 }
 
 export function mergeTerminalHistory(
@@ -131,22 +241,21 @@ export function mergeTerminalHistory(
   }
   if (history.length === 0) return [...next, ...activeStatus].slice(-limit)
 
-  let appended
-  if (sequenceIndex(prior, next) >= 0) {
-    // A terminal can temporarily report only a few rows while accepting a prompt.
-    // Keep the longer history instead of collapsing the card and its scrollbar.
-    appended = []
-  } else {
-    const priorInsideNext = sequenceIndex(next, prior)
-    if (priorInsideNext >= 0) {
-      appended = next.slice(priorInsideNext + prior.length)
-    } else {
-      const overlap = suffixPrefixOverlap(prior, next)
-      appended =
-        overlap > 0 ? next.slice(overlap) : next.slice(commonPrefixLength(prior, next))
-    }
+  // Keep one replaceable current-frame suffix behind the archived rows. A TUI
+  // redraw can insert output above a stable footer, reflow wrapped lines, or
+  // shift the viewport. Appending the entire changed frame makes those redraws
+  // appear as repeated conversations. Replacing the prior frame preserves its
+  // scrolled-off prefix only when the new frame begins at a proven shared row.
+  const archive = historyBeforeFrame(history, prior)
+  const pairs = matchingLinePairs(prior, next)
+  if (pairs.length === 0) {
+    return [...archive, ...prior, ...next, ...activeStatus].slice(-limit)
   }
-  return [...history, ...appended, ...activeStatus].slice(-limit)
+
+  const first = pairs[0]
+  const nextStartsAtMatch = next.slice(0, first.nextIndex).every((line) => !mergeLineKey(line))
+  const retiredPrefix = nextStartsAtMatch ? prior.slice(0, first.previousIndex) : []
+  return [...archive, ...retiredPrefix, ...next, ...activeStatus].slice(-limit)
 }
 
 async function mapWithConcurrency(values, concurrency, mapper) {
@@ -314,12 +423,33 @@ export async function refreshBoundTerminalScreens(
       const previousRawFrame = previous?.rawFrameLines ?? previous?.frameLines ?? previous?.lines ?? []
       const rawFrameChanged = !previous || !terminalLinesEqual(previousRawFrame, rawFrameLines)
       let frameLines = rawFrameChanged ? rawFrameLines : previous?.frameLines ?? rawFrameLines
-      if (rawFrameChanged && typeof readTranscript === 'function') {
+      let paragraphEnrichmentAttempts = rawFrameChanged
+        ? 0
+        : previous?.paragraphEnrichmentAttempts ?? 0
+      let paragraphEnrichmentPending = rawFrameChanged
+      let enrichmentTranscriptLines = null
+      let restoredParagraphBreak = false
+      if (
+        typeof readTranscript === 'function' &&
+        (rawFrameChanged || previous?.paragraphEnrichmentPending)
+      ) {
+        paragraphEnrichmentAttempts += 1
         try {
           const transcript = await readTranscript(terminal.handle)
-          frameLines = restoreTranscriptParagraphs(frameLines, transcript?.tail)
+          enrichmentTranscriptLines = Array.isArray(transcript?.tail)
+            ? transcript.tail.map(String)
+            : []
+          const enrichedFrameLines = restoreTranscriptParagraphs(
+            rawFrameLines,
+            enrichmentTranscriptLines
+          )
+          restoredParagraphBreak = enrichedFrameLines.length > rawFrameLines.length
+          frameLines = restoredParagraphBreak ? enrichedFrameLines : frameLines
+          paragraphEnrichmentPending =
+            !restoredParagraphBreak && paragraphEnrichmentAttempts < 2
         } catch {
           // The rendered screen remains usable when transcript enrichment is unavailable.
+          paragraphEnrichmentPending = paragraphEnrichmentAttempts < 2
         }
       }
       const previousFrame = previous?.frameLines ?? previousRawFrame
@@ -329,12 +459,17 @@ export async function refreshBoundTerminalScreens(
           filterTerminalUiNoise(previousRawFrame),
           filterTerminalUiNoise(rawFrameLines)
         )
-      const lines = mergeTerminalHistory(previous?.lines, previousFrame, frameLines)
+      const lines =
+        !rawFrameChanged && restoredParagraphBreak
+          ? restoreTranscriptParagraphs(previous?.lines, enrichmentTranscriptLines)
+          : mergeTerminalHistory(previous?.lines, previousFrame, frameLines)
       screenCache.set(terminal.stableId, {
         lastOutputAt: terminal.lastOutputAt,
         lines,
         frameLines,
         rawFrameLines,
+        paragraphEnrichmentAttempts,
+        paragraphEnrichmentPending,
         source: screen.source ?? 'unknown',
         draft: typeof screen.draft === 'string' ? screen.draft : '',
         readAt,
@@ -348,6 +483,8 @@ export async function refreshBoundTerminalScreens(
         lines: previous?.lines ?? [],
         frameLines: previous?.frameLines ?? previous?.lines ?? [],
         rawFrameLines: previous?.rawFrameLines ?? previous?.frameLines ?? previous?.lines ?? [],
+        paragraphEnrichmentAttempts: previous?.paragraphEnrichmentAttempts ?? 0,
+        paragraphEnrichmentPending: previous?.paragraphEnrichmentPending ?? false,
         source: previous?.source ?? 'unknown',
         draft: previous?.draft ?? '',
         readAt: previous?.readAt ?? null,

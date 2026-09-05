@@ -60,6 +60,7 @@ test('groups user prompts, agent replies, tools, and activity into readable bloc
 test('recognizes only unfinished whimsical activity as transient', () => {
   assert.equal(isTransientTerminalStatus('✻ Stewing…'), true)
   assert.equal(isTransientTerminalStatus('✻ Combobulating...'), true)
+  assert.equal(isTransientTerminalStatus('Working (3m 47s • esc to interrupt)'), true)
   assert.equal(isTransientTerminalStatus('✻ Churned for 4s · done'), false)
 })
 

@@ -11,5 +11,5 @@ test('registers the global Control Room launcher command', () => {
       }
     }
   })
-  assert.equal(typeof registered.get('open-control-room'), 'function')
+  assert.equal(typeof registered.get('open-live-terminals'), 'function')
 })

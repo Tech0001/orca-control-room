@@ -1,10 +1,10 @@
 {
   "manifestVersion": 1,
-  "id": "control-room",
+  "id": "control-room-live-terminals",
   "publisher": "tech0001",
-  "name": "Orca Control Room",
-  "version": "0.5.3",
-  "description": "Launch a persistent director console for long-lived Orca agent lanes.",
+  "name": "Control Room · Live Terminals (Experimental)",
+  "version": "0.6.0-experimental.1",
+  "description": "Two real terminal views for existing Orca sessions. Separate from stable Control Room.",
   "engines": {
     "orca": ">=1.4.178"
   },
@@ -13,8 +13,8 @@
   "contributes": {
     "commands": [
       {
-        "id": "open-control-room",
-        "title": "Control Room: Open Director Console",
+        "id": "open-live-terminals",
+        "title": "Control Room: Open Live Terminals (Experimental)",
         "context": "global"
       }
     ]

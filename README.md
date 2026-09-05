@@ -1,125 +1,103 @@
-# Orca Control Room
+# Control Room · Live Terminals
 
-A persistent director console for people running a long-lived organization of agents in
-[Orca](https://www.onorca.dev/).
+An experimental two-terminal version of Orca Control Room. Each tile renders the real
+terminal stream with xterm.js and sends keyboard input directly to the existing Orca session.
+Agents remain managed by Orca, including their conversation history and orchestration tools.
 
-Unlike a task dashboard, Control Room keeps planning strategists and department managers visible
-even when they are idle. Short-lived workers roll up beneath their manager instead of taking over
-the primary view.
+This branch is `experiment/live-terminals`. Keep it in a separate folder from your working
+Control Room installation. It has its own plugin ID, command, port, browser storage, and state.
 
-![Orca Control Room showing a persistent multi-agent workspace](docs/images/control-room-overview.png)
+## What works in the prototype
 
-## Current prototype
+- Two independently connected live terminals, with ANSI colors and native TUI redraws.
+- Direct typing, arrows, Enter, Escape, Ctrl+C, slash-command menus, and native command history.
+- Native text selection and scrollback, with no conversation reconstruction or screen polling.
+- A compact header, resizable tiles, and a maximize/restore button.
+- Independent input queues, so a slow send to one terminal does not block the other.
+- Output in one lane does not focus it or interrupt typing in the other lane.
+- Reconnection restores Orca's terminal snapshot into the existing tile.
+- Image paste/file selection stores a private local file and inserts its quoted path into the
+  terminal prompt. Press Enter yourself to submit. Agent support for image paths still applies.
+- Closing this view detaches its connections; it never sends a terminal close/kill command.
 
-- Runs alongside stock Orca and uses only the public `orca` CLI.
-- Pins a stable roster across Orca restarts, rebinding runtime terminal handles automatically.
-- Refreshes selected terminal screens on a staggered four-second cadence and rolls changed frames
-  into a bounded lane history.
-- Runs only one screen read at a time and caches terminal discovery to avoid synchronized CLI
-  process bursts in large rooms.
-- Adds terminal-style highlighting to the plain-text terminal data exposed by Orca's public CLI.
-- Groups prompts, replies, tool activity, and thinking into labeled conversation blocks.
-- Restores paragraph breaks that Orca's rendered-screen projection omits by aligning the live
-  screen with its accumulated terminal transcript.
-- Filters Codex permission dialogs, usage notices, idle prompts, and other terminal-interface noise
-  out of the conversation view and retained lane history.
-- Replaces animated thinking redraws in place instead of repeating them in lane history.
-- Preserves the last readable frame during transient failures and flags the lane while retrying.
-- Keeps a bounded rolling lane history so short post-send frames cannot collapse the scrollbar.
-- Preserves reading position and offers a **New output** jump when a lane changes above the fold.
-- Opens retained terminal history on demand.
-- Waits for Orca's verified agent-prompt delivery result and displays failures without clearing
-  the Control Room input.
-- Supports multiline prompts and pasted snippets: Enter sends, while Shift+Enter inserts a line.
-- Offers an explicit per-lane **Keys** mode that passes typing, pasted commands, arrows, Enter,
-  Escape, Tab, Backspace, and navigation keys directly to the terminal through Orca's public CLI.
-  This makes slash-command menus and other interactive terminal prompts usable without leaving
-  Control Room.
-- Focuses a lane's compact composer when its conversation area is clicked, while preserving text
-  selection in the transcript.
-- Previews clipboard or file-picker images and sends their private local paths with the prompt.
-- Sends a message or jumps directly to the native Orca terminal.
-- Persists lane names, strategist/manager roles, order, and column count.
-- Supports persistent per-lane resizing without changing the underlying PTY dimensions.
-- Binds only to `127.0.0.1` and protects its local API with a random session token.
-- Replaces an outdated companion automatically when a newer plugin version opens.
+## Run alongside stable Control Room
 
-## Install
-
-1. Clone or download this repository to the computer running Orca. For example:
-
-   ```bash
-   git clone https://github.com/Tech0001/orca-control-room.git
-   ```
-
-2. In Orca, open **Settings → Plugins** and turn on the experimental **Plugin system**.
-3. Expand **Development**, enter the absolute path to the cloned `orca-control-room` folder, and
-   select **Add path**.
-
-   ![Orca plugin settings with the Development path and Control Room enable switch highlighted](docs/images/install-development-plugin.png)
-
-4. Review the requested permissions and enable **Orca Control Room**.
-5. Open **Search** (`Ctrl+J` on Linux), search for **Director Console**, and run
-   **Control Room: Open Director Console**.
-
-   ![Launching Control Room from Orca Search](docs/images/launch-control-room.png)
-
-6. Choose **Manage lanes**, add the long-lived terminals, assign roles, and save the layout.
-
-> [!IMPORTANT]
-> Control Room includes a local Node worker that launches its companion process. Orca workers run
-> as normal processes on your computer, so review the repository before enabling it.
-
-## Launch Control Room
-
-Open Orca's **Search** (`Ctrl+J` on Linux), search for **Director Console**, and run
-**Control Room: Open Director Console**. The current plugin does not add a permanent sidebar icon
-or toolbar button.
-
-To update, pull the latest repository changes, close the Control Room window, toggle the plugin off
-and back on, and open the command again. The active version is displayed beside
-**Orca Control Room** in the header.
-
-## Share the plugin
-
-Control Room appears as one item in Orca, but the plugin itself is this entire repository folder.
-To share it, publish or archive the complete `orca-control-room` folder. The recipient can clone or
-extract it, then follow the installation steps above. It has no third-party npm
-dependencies to install.
-
-Each person's pinned lanes, roles, layout, and runtime session are kept outside the repository in
-their own `~/.config/orca-control-room` directory. Sharing the plugin therefore does not share your
-local agent roster or Control Room state.
-
-## Local operation and images
-
-On Linux, the launcher opens Chromium in app mode when available and falls back to the default
-browser. The companion exits after ten minutes without an open client.
-
-Pasted images are written with user-only permissions under
-`/tmp/orca-control-room-attachments`, then expired after 24 hours. They stay on this computer
-unless the receiving agent explicitly uploads them somewhere.
-
-**Keys** mode directly controls the selected terminal and can therefore run commands. Its blue
-active state is deliberately separate from normal message delivery; switch it off to return to
-agent prompts and image attachments.
-
-## Run without installing the plugin
+Requires Node.js 20 or newer and npm. In this experimental checkout:
 
 ```bash
-npm start
+npm ci --omit=dev --ignore-scripts
+npm run open
 ```
 
-Then open `http://127.0.0.1:47831/?token=development-only-token`.
+`npm run open` starts the experimental companion and opens a browser window. You can also add
+this folder to Orca **Settings → Plugins → Development** and enable the separate
+**Control Room · Live Terminals (Experimental)** plugin. Search for
+**Control Room: Open Live Terminals (Experimental)** to launch it.
 
-## Validate
+Do not replace the stable plugin's development path with this one. Both can be installed.
+
+## One-time local pairing
+
+The live stream is behind Orca's authenticated WebSocket connection; the public plugin API
+does not expose it. Generate a dedicated connection for this experimental view:
+
+1. In Orca, open **Settings → Remote Orca Servers**.
+2. Under **Share this Orca server**, choose **New Link**.
+3. Choose **This computer only**, then generate and copy the runtime pairing link. A browser
+   link containing the pairing information also works.
+4. In the experimental Control Room window, open **Connection**, paste the link, and connect.
+5. Use **Choose two lanes** to select two different existing Orca terminals.
+
+The prototype rejects network addresses and phone-only pairings. It connects to loopback on
+the same computer. A runtime pairing grants broad Orca runtime access: keep the link private,
+and use a dedicated grant so it can be revoked without affecting other clients.
+
+The pairing credential stays in the companion's private state directory. It is not sent to
+the browser. Browser access uses a separate random token and exact-origin checks. No credentials,
+terminal output, or agent roster are committed to this repository.
+
+## Terminal sizing and reconnects
+
+A terminal session has one underlying row/column size, even when Orca and Control Room both
+show it. Attaching a tile initially observes the current size. Focusing or typing in a tile
+claims its dimensions through Orca's viewport coordination. Resizing an unfocused tile does
+not claim the terminal. The original Orca view may reflow when you use the smaller tile.
+
+The initial/reconnected scrollback is limited to the snapshot Orca provides. New output is
+retained by xterm up to 10,000 lines. A reconnect replaces that view with a fresh snapshot.
+Unconfirmed input is never automatically replayed; check the native prompt before resending it.
+
+This is a local experiment using **internal Orca RPC**, not a stable terminal plugin API.
+Protocol changes in stock Orca may require updating `companion/live-rpc.mjs` or the terminal
+subscription adapter. No Orca fork, patched application, or tmux session is required.
+
+## Isolation
+
+| Item | Stable Control Room | Experimental live view |
+| --- | --- | --- |
+| Plugin ID | `tech0001/control-room` | `tech0001/control-room-live-terminals` |
+| Port | `47831` | `47832` |
+| State directory | `~/.config/orca-control-room` | `~/.config/orca-control-room-live-terminals` |
+| Launcher | Open Director Console | Open Live Terminals (Experimental) |
+
+The experiment reads the first two names from the stable roster once to seed its own roster.
+It never writes stable state or calls the stable companion's shutdown path.
+Its image files are under its own `attachments` directory, with 24-hour expiry on subsequent
+image uploads. Disable this plugin and close its window to return to the stable version.
+
+## Verification
 
 ```bash
+npm ci --ignore-scripts
 npm test
+npm run test:live
 ```
 
-## Status
+The browser test uses system Chromium (`CHROMIUM_PATH` overrides `/usr/bin/chromium`) and an
+isolated encrypted test runtime. It checks two real xterm renderers, input routing, ANSI output,
+focus, scrollback, reconnects, maximize/restore, authentication, and detach-only cleanup.
+These automated fixtures do not replace testing the adapter against the installed stock Orca
+after pairing. The original readable-text renderer remains in this branch as reference code;
+the experimental launcher uses `companion/live-server.mjs`.
 
-This is an early local prototype. It intentionally avoids Orca's private terminal stream protocol
-so it remains compatible with stock app updates. The tradeoff is a readable text representation
-of each terminal rather than embedding Orca's exact native xterm component.
+MIT licensed. Dependencies retain their respective licenses.

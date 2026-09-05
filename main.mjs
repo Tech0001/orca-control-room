@@ -7,10 +7,10 @@ import { fileURLToPath } from 'node:url'
 import { CONTROL_ROOM_VERSION } from './version.mjs'
 
 const pluginRoot = dirname(fileURLToPath(import.meta.url))
-const serverEntry = join(pluginRoot, 'companion', 'server.mjs')
-const stateDirectory = join(homedir(), '.config', 'orca-control-room')
+const serverEntry = join(pluginRoot, 'companion', 'live-server.mjs')
+const stateDirectory = join(homedir(), '.config', 'orca-control-room-live-terminals')
 const sessionFile = join(stateDirectory, 'session.json')
-const defaultPort = 47_831
+const defaultPort = 47_832
 
 async function readSession() {
   try {
@@ -114,7 +114,7 @@ async function ensureCompanion() {
   await stopObsoleteCompanion(existing)
 
   await access(serverEntry)
-  await mkdir(stateDirectory, { recursive: true })
+  await mkdir(stateDirectory, { recursive: true, mode: 0o700 })
   const session = { port: defaultPort, token: randomUUID() }
   const child = spawn(
     process.execPath,
@@ -130,11 +130,15 @@ async function ensureCompanion() {
   return session
 }
 
-export default function activate(orca) {
-  orca.commands.register('open-control-room', async () => {
+async function openLiveTerminals() {
     const session = await ensureCompanion()
-    const url = `http://127.0.0.1:${session.port}/?token=${encodeURIComponent(session.token)}`
+    const url = `http://127.0.0.1:${session.port}/#token=${encodeURIComponent(session.token)}`
     await openWindow(url)
     return { opened: true }
-  })
 }
+
+export default function activate(orca) {
+  orca.commands.register('open-live-terminals', openLiveTerminals)
+}
+
+if (process.argv.includes('--open')) await openLiveTerminals()

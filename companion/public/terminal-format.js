@@ -11,7 +11,9 @@ export function isTransientTerminalStatus(value) {
   return (
     !/^[╭╮╰╯┌┐└┘├┤┬┴┼│┃─━┄┅┈┉]/.test(line) &&
     transientActivityPattern.test(line) &&
-    (/^[✻✽✶✢✣✤✥✦✧⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏*]/.test(line) || /…|\.{3}/.test(line)) &&
+    (/^[✻✽✶✢✣✤✥✦✧⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏*]/.test(line) ||
+      /…|\.{3}/.test(line) ||
+      /\besc to interrupt\b/i.test(line)) &&
     !/\bdone\b/i.test(line) &&
     !completedActivityPattern.test(line)
   )

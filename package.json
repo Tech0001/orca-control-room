@@ -1,15 +1,26 @@
 {
-  "name": "orca-control-room",
-  "version": "0.5.3",
+  "name": "orca-control-room-live-terminals",
+  "version": "0.6.0-experimental.1",
   "private": true,
   "description": "A persistent director console for long-lived Orca agent lanes.",
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "start": "node companion/server.mjs --dev",
+    "start": "node companion/live-server.mjs --dev",
+    "open": "node main.mjs --open",
+    "test:live": "node tests/live-browser.mjs",
     "test": "node --test tests/*.test.mjs"
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
+    "tweetnacl": "1.0.3",
+    "ws": "8.21.3"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
   }
 }

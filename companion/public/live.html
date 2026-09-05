@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Control Room · Live Terminals</title>
+  <link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/vendor/xterm.css"><link rel="stylesheet" href="/live.css">
+  <script defer src="/vendor/xterm.js"></script><script defer src="/vendor/fit.js"></script><script type="module" src="/live.js"></script>
+</head>
+<body>
+  <header class="topbar"><div><div class="eyebrow">Director console · experimental</div><div class="title-row"><h1>Control Room · Live Terminals</h1><span id="version" class="app-version"></span></div></div>
+    <div class="topbar-actions"><span id="connection" class="connection">Connecting…</span><button id="manage">Choose two lanes</button><button id="setup">Connection</button></div>
+  </header>
+  <div id="notice" role="status" hidden></div>
+  <main id="live-grid"></main>
+  <dialog id="settings" class="live-dialog">
+    <h2>Connect to Orca on this computer</h2>
+    <p>In Orca, open <strong>Settings → Remote Orca Servers → Share this Orca server → New Link</strong>. Choose <strong>This computer only</strong>, then generate and copy the runtime pairing link.</p>
+    <label>Runtime pairing link<input id="pair-code" type="password" autocomplete="off" placeholder="orca://pair?code=…"></label>
+    <p class="fine">Saved privately for this experimental view. Your working Control Room has separate settings.</p>
+    <p id="pair-error" class="error" role="alert"></p>
+    <footer><button data-close="settings">Cancel</button><button id="pair" class="primary">Connect</button></footer>
+  </dialog>
+  <dialog id="lanes" class="live-dialog">
+    <h2>Choose two live terminals</h2><p>These views attach to your existing Orca sessions.</p>
+    <label>Left lane<select id="left-lane"></select></label><label>Right lane<select id="right-lane"></select></label>
+    <p id="lanes-error" class="error" role="alert"></p><footer><button data-close="lanes">Cancel</button><button id="save-lanes" class="primary">Open terminals</button></footer>
+  </dialog>
+</body>
+</html>
