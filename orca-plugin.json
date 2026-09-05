@@ -2,9 +2,9 @@
   "manifestVersion": 1,
   "id": "control-room-live-terminals",
   "publisher": "tech0001",
-  "name": "Control Room · Live Terminals (Experimental)",
-  "version": "0.6.0-experimental.1",
-  "description": "Two real terminal views for existing Orca sessions. Separate from stable Control Room.",
+  "name": "Control Room · Live Terminals",
+  "version": "0.6.0",
+  "description": "An ordered, resizable grid of real terminals for persistent Orca agents. Separate from readable-text Control Room.",
   "engines": {
     "orca": ">=1.4.178"
   },
@@ -14,7 +14,7 @@
     "commands": [
       {
         "id": "open-live-terminals",
-        "title": "Control Room: Open Live Terminals (Experimental)",
+        "title": "Control Room: Open Live Terminals",
         "context": "global"
       }
     ]

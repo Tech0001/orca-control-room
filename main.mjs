@@ -108,7 +108,7 @@ async function openWindow(url) {
   throw new Error(`Opening the Control Room is unsupported on ${process.platform}`)
 }
 
-async function ensureCompanion() {
+export async function ensureCompanion() {
   const existing = await readSession()
   if (await isHealthy(existing)) return existing
   await stopObsoleteCompanion(existing)

@@ -7,23 +7,25 @@
   <script defer src="/vendor/xterm.js"></script><script defer src="/vendor/fit.js"></script><script type="module" src="/live.js"></script>
 </head>
 <body>
-  <header class="topbar"><div><div class="eyebrow">Director console · experimental</div><div class="title-row"><h1>Control Room · Live Terminals</h1><span id="version" class="app-version"></span></div></div>
-    <div class="topbar-actions"><span id="connection" class="connection">Connecting…</span><button id="manage">Choose two lanes</button><button id="setup">Connection</button></div>
+  <header class="topbar"><div><div class="eyebrow">Director console</div><div class="title-row"><h1>Control Room · Live Terminals</h1><span id="version" class="app-version"></span></div></div>
+    <div class="topbar-actions"><span id="connection" class="connection">Connecting…</span><button id="manage">Manage lanes</button><button id="reset-sizes" title="Reset custom tile sizes to the current grid">Reset sizes</button><button id="refresh" title="Reload the view without stopping agents">Refresh</button><button id="setup">Connection</button></div>
   </header>
   <div id="notice" role="status" hidden></div>
-  <main id="live-grid"></main>
+  <main id="live-grid"><div id="empty" hidden><h2>Your agents, in one place</h2><p>Add existing Orca terminals to create your layout. Removing a lane only removes its view—it never stops the agent.</p><button id="empty-manage" class="primary">Manage lanes</button></div></main>
   <dialog id="settings" class="live-dialog">
     <h2>Connect to Orca on this computer</h2>
     <p>In Orca, open <strong>Settings → Remote Orca Servers → Share this Orca server → New Link</strong>. Choose <strong>This computer only</strong>, then generate and copy the runtime pairing link.</p>
     <label>Runtime pairing link<input id="pair-code" type="password" autocomplete="off" placeholder="orca://pair?code=…"></label>
-    <p class="fine">Saved privately for this experimental view. Your working Control Room has separate settings.</p>
+    <p class="fine">Saved privately for this live view. Your original Control Room has separate settings.</p>
     <p id="pair-error" class="error" role="alert"></p>
     <footer><button data-close="settings">Cancel</button><button id="pair" class="primary">Connect</button></footer>
   </dialog>
-  <dialog id="lanes" class="live-dialog">
-    <h2>Choose two live terminals</h2><p>These views attach to your existing Orca sessions.</p>
-    <label>Left lane<select id="left-lane"></select></label><label>Right lane<select id="right-lane"></select></label>
-    <p id="lanes-error" class="error" role="alert"></p><footer><button data-close="lanes">Cancel</button><button id="save-lanes" class="primary">Open terminals</button></footer>
+  <dialog id="lanes" class="live-dialog roster-dialog">
+    <h2>Manage live lanes</h2><p>Add existing terminals, name them, and set their order. Removing a lane never stops its agent.</p>
+    <div class="layout-options"><label>Columns<select id="layout-columns"><option value="0">Auto</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option><option>10</option><option>11</option><option>12</option></select></label><label>Terminal text size<input id="font-size" type="number" min="9" max="20" step="1" value="12"></label></div>
+    <p id="lane-count" class="fine"></p><div id="lane-list"></div>
+    <div class="add-lane"><label>Find an existing terminal<input id="terminal-filter" type="search" placeholder="Search name or folder…"></label><div class="terminal-picker"><select id="available-terminals" aria-label="Available terminals"></select><button id="add-lane">Add lane</button></div></div>
+    <p id="lanes-error" class="error" role="alert"></p><footer><button id="import-roster" title="Add available saved lanes from the original Control Room without changing it">Import original roster</button><button data-close="lanes">Cancel</button><button id="save-lanes" class="primary">Save layout</button></footer>
   </dialog>
 </body>
 </html>

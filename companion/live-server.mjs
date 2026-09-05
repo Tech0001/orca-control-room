@@ -9,6 +9,7 @@ import { LiveRpc, parsePairing, currentEndpoint } from './live-rpc.mjs'
 import { saveClipboardImage, MAX_ATTACHMENT_BYTES } from './attachments.mjs'
 import { CONTROL_ROOM_VERSION as version } from '../version.mjs'
 import { isQueryReply } from './public/live-protocol.mjs'
+import { normalizeConfig, selectConfig, bindLane as bind, MAX_LANES } from './live-model.mjs'
 
 const root = dirname(fileURLToPath(import.meta.url))
 const args = process.argv.slice(2)
@@ -21,6 +22,7 @@ const origin = `http://127.0.0.1:${port}`
 const configPath = join(stateDir, 'config.json')
 const pairingPath = join(stateDir, 'pairing.json')
 const sessionPath = join(stateDir, 'session.json')
+const rosterPath = process.env.ORCA_CONTROL_ROOM_ROSTER_PATH || join(homedir(), '.config', 'orca-control-room', 'config.json')
 let pairing = null
 let config = { lanes: [] }
 let directoryRpc = null
@@ -36,13 +38,12 @@ async function privateJson(path, value) {
 }
 
 try { config = JSON.parse(await readFile(configPath, 'utf8')) } catch {
-  // Seed two names from the stable roster once; never write stable state.
+  // Seed the saved roster once; never write the original Control Room's state.
   try {
-    const stable = JSON.parse(await readFile(join(homedir(), '.config', 'orca-control-room', 'config.json'), 'utf8'))
-    config.lanes = stable.lanes.slice(0, 2)
+    config = JSON.parse(await readFile(rosterPath, 'utf8'))
   } catch {}
 }
-config = { lanes: Array.isArray(config?.lanes) ? config.lanes.slice(0, 2) : [] }
+config = normalizeConfig(config)
 try {
   const saved = JSON.parse(await readFile(pairingPath, 'utf8'))
   pairing = parsePairing(Buffer.from(JSON.stringify(saved)).toString('base64url'))
@@ -64,18 +65,18 @@ async function connectDirectory() {
   return directoryPromise
 }
 
+let directoryCache = null, terminalListPromise = null
 async function listTerminals() {
-  const result = await (await connectDirectory()).request('terminal.list', { includeVisualLayouts: false })
-  return (result.terminals || []).map(t => ({ handle: t.handle, tabId: t.tabId, leafId: t.leafId,
-    worktreePath: t.worktreePath, title: t.title || t.worktreePath?.split('/').at(-1) || 'Terminal',
-    connected: t.connected, writable: t.writable }))
-}
-
-function bind(lane, terminals) {
-  if (!lane) return null
-  const matches = terminals.filter(t => t.worktreePath === lane.worktreePath && t.tabId === lane.tabId &&
-    (!lane.leafId || t.leafId === lane.leafId))
-  return matches.find(t => t.handle === lane.handle) || (matches.length === 1 ? matches[0] : null)
+  if (directoryCache && Date.now() - directoryCache.at < 1000) return directoryCache.terminals
+  if (!terminalListPromise) terminalListPromise = (async () => {
+    const result = await (await connectDirectory()).request('terminal.list', { includeVisualLayouts: false })
+    const terminals = (result.terminals || []).map(t => ({ handle: t.handle, tabId: t.tabId, leafId: t.leafId,
+      worktreePath: t.worktreePath, title: t.title || t.worktreePath?.split('/').at(-1) || 'Terminal',
+      connected: t.connected, writable: t.writable }))
+    directoryCache = { at: Date.now(), terminals }
+    return terminals
+  })().finally(() => { terminalListPromise = null })
+  return terminalListPromise
 }
 
 function json(response, status, value) {
@@ -121,10 +122,14 @@ const server = createServer(async (request, response) => {
       if (request.method === 'POST' && request.headers.origin !== origin) return json(response, 403, { error: 'Invalid origin' })
       if (request.method === 'GET' && path === '/api/health') return json(response, 200, { ok: true, version, pid: process.pid })
       if (request.method === 'GET' && path === '/api/state') {
-        if (!pairing) return json(response, 200, { paired: false, version, lanes: config.lanes, available: [] })
+        if (!pairing) return json(response, 200, { ...config, paired: false, version, maxLanes: MAX_LANES, available: [] })
         const available = await listTerminals()
-        return json(response, 200, { paired: true, version, available,
+        return json(response, 200, { ...config, paired: true, version, available, maxLanes: MAX_LANES,
           lanes: config.lanes.map(l => ({ ...l, terminal: bind(l, available) || null })) })
+      }
+      if (request.method === 'GET' && path === '/api/roster') {
+        try { return json(response, 200, normalizeConfig(JSON.parse(await readFile(rosterPath, 'utf8')))) }
+        catch { return json(response, 200, normalizeConfig(null)) }
       }
       if (request.method === 'POST' && path === '/api/pair') {
         const offer = parsePairing((await body(request)).code)
@@ -132,24 +137,22 @@ const server = createServer(async (request, response) => {
         try { await probe.connect(); await probe.request('status.get') } finally { probe.close() }
         await privateJson(pairingPath, offer)
         pairing = offer
+        directoryCache = null
         directoryRpc?.close(); directoryRpc = null
         for (const socket of terminalSockets) socket.close(1000, 'Pairing changed')
         return json(response, 200, { ok: true })
       }
       if (request.method === 'POST' && path === '/api/config') {
         const data = await body(request)
-        if (!Array.isArray(data.handles) || data.handles.length !== 2 || new Set(data.handles).size !== 2) throw new Error('Choose two different terminals')
         const available = await listTerminals()
-        const lanes = data.handles.map(handle => {
-          const terminal = available.find(t => t.handle === handle)
-          if (!terminal) throw new Error('Terminal no longer exists; refresh the list')
-          const previous = config.lanes.find(l => bind(l, available)?.handle === terminal.handle)
-          return { worktreePath: terminal.worktreePath, tabId: terminal.tabId, leafId: terminal.leafId, handle: terminal.handle,
-            name: previous?.name || terminal.worktreePath?.split('/').at(-1)?.replace(/^agent-/, '') || terminal.title }
-        })
-        await privateJson(configPath, { lanes })
-        config = { lanes }
-        for (const socket of terminalSockets) socket.close(1000, 'Terminal selection changed')
+        const next = selectConfig(data, config, available)
+        await privateJson(configPath, next)
+        config = next
+        // Renaming, reordering, or adding another lane must not interrupt current streams.
+        for (const socket of terminalSockets) {
+          const lane = config.lanes.find(l => l.id === socket.laneId)
+          if (bind(lane, available)?.handle !== socket.terminalHandle) socket.close(1000, 'Lane removed or reassigned')
+        }
         return json(response, 200, { ok: true })
       }
       if (request.method === 'POST' && path === '/api/attachment') {
@@ -176,7 +179,7 @@ function viewport(value) {
 
 const wss = new WebSocketServer({ noServer: true, maxPayload: 128 * 1024, perMessageDeflate: false })
 server.on('upgrade', (request, socket, head) => {
-  if (request.url !== '/live' || request.headers.origin !== origin || request.headers.host !== `127.0.0.1:${port}` || wss.clients.size >= 6) {
+  if (request.url !== '/live' || request.headers.origin !== origin || request.headers.host !== `127.0.0.1:${port}` || wss.clients.size >= Math.max(8, config.lanes.length * 3)) {
     socket.end('HTTP/1.1 403 Forbidden\r\n\r\n'); return
   }
   wss.handleUpgrade(request, socket, head, ws => wss.emit('connection', ws))
@@ -207,6 +210,8 @@ wss.on('connection', ws => {
         const lane = config.lanes.find(l => bind(l, available)?.handle === message.handle)
         if (!lane) throw new Error('Choose this terminal in the experimental lane settings first')
         handle = message.handle
+        ws.laneId = lane.id
+        ws.terminalHandle = handle
         rpc = new LiveRpc(pairing, { endpoint: await currentEndpoint(pairing), onClose: reason => {
           emit({ type: 'error', message: reason }); ws.close(1012, 'Orca connection ended')
         } })

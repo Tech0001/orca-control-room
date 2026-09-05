@@ -1,7 +1,7 @@
-body { font-size: 12px; height: 100vh; overflow: hidden; }
+body { font-size: 12px; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
 button, input, select { font-size: 12px; }
-#live-grid { display: flex; gap: 8px; height: calc(100vh - 62px); padding: 8px; overflow: auto; align-items: stretch; }
-.live-lane { width: calc(50% - 4px); min-width: 340px; height: 100%; min-height: 280px; resize: both; flex: 0 0 auto; display: flex; flex-direction: column; background: var(--terminal-background); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+#live-grid { --live-columns: 2; --live-height: 600px; display: flex; flex-wrap: wrap; gap: 8px; flex: 1; min-height: 0; padding: 8px; overflow: auto; align-items: flex-start; align-content: flex-start; }
+.live-lane { width: calc((100% - (var(--live-columns) - 1) * 8px) / var(--live-columns)); min-width: 320px; height: var(--live-height); min-height: 280px; resize: both; flex: 0 0 auto; display: flex; flex-direction: column; background: var(--terminal-background); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .live-lane:focus-within { border-color: var(--accent); }
 .live-lane.maximized { position: fixed; inset: 8px; z-index: 40; width: auto !important; height: auto !important; }
 .live-lane header { display: flex; gap: 8px; padding: 8px 10px; align-items: center; border-bottom: 1px solid var(--border); background: var(--panel); }
@@ -13,9 +13,29 @@ button, input, select { font-size: 12px; }
 .icon svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; }
 .terminal-host { flex: 1; min-height: 0; overflow: auto; padding: 8px; position: relative; }
 .terminal-host .xterm { height: 100%; }
+.terminal-host .xterm .xterm-viewport { background-color: var(--terminal-background); }
 .live-lane footer { display: flex; gap: 8px; min-height: 28px; align-items: center; padding: 4px 10px; color: var(--muted); border-top: 1px solid var(--border); font-size: 10px; }
 .lane-error { color: var(--danger); overflow-wrap: anywhere; }
 .live-dialog { width: min(560px, 95vw); padding: 24px; background: var(--panel); color: var(--foreground); border: 1px solid var(--border); border-radius: 12px; }
+.live-dialog { max-height: 90vh; overflow: auto; }
+.roster-dialog { width: min(850px, 95vw); }
+.layout-options { display: flex; gap: 16px; }
+.layout-options label { flex: 1; }
+#lane-list { max-height: 40vh; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
+.lane-choice { display: flex; align-items: center; gap: 6px; padding: 6px; border: 1px solid var(--border); border-radius: 6px; }
+.lane-choice-fields { flex: 1; min-width: 0; }
+.lane-choice-fields input { margin: 0; padding: 5px 8px; }
+.lane-choice small { display: block; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-top: 4px; }
+.lane-number { width: 24px; text-align: center; color: var(--muted); }
+.lane-choice button { width: 28px; padding: 4px; }
+.terminal-picker { display: flex; align-items: center; gap: 8px; }
+.terminal-picker select { flex: 1; min-width: 0; }
+.terminal-picker button { white-space: nowrap; margin-top: 6px; }
+button:disabled { opacity: .4; cursor: default; }
+#empty { width: 100%; max-width: 500px; margin: 12vh auto; text-align: center; }
+#empty[hidden] { display: none; }
+#empty p { line-height: 1.7; margin: 16px 0; color: var(--muted); }
+.topbar { flex: 0 0 auto; flex-wrap: wrap; gap: 8px; }
 .live-dialog::backdrop { background: #0009; }
 .live-dialog h2 { font-size: 16px; margin-bottom: 12px; }
 .live-dialog p { line-height: 1.6; margin: 10px 0; }
@@ -25,4 +45,4 @@ button, input, select { font-size: 12px; }
 .fine { color: var(--muted); font-size: 11px; }
 .error { color: var(--danger); }
 #notice { position: fixed; z-index: 50; bottom: 16px; left: 50%; transform: translateX(-50%); padding: 10px 16px; background: var(--panel-raised); border: 1px solid var(--border); border-radius: 8px; max-width: 80vw; }
-@media (max-width: 800px) { #live-grid { flex-direction: column; } .live-lane { width: 100%; height: 65vh; } .connection { display: none; } }
+@media (max-width: 700px) { .live-lane { min-width: min(320px, 100%); } .connection { display: none; } .topbar-actions { flex-wrap: wrap; } .live-dialog footer { flex-wrap: wrap; } }

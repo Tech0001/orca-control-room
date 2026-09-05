@@ -8,6 +8,19 @@ const panels = new Map()
 let state = null
 let updating = false
 let noticeTimer
+let laneDraft = []
+const savedValue = key => { try { return JSON.parse(localStorage.getItem(key) || 'null') } catch { return null } }
+const saveValue = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)) } catch {} }
+
+function layout() {
+  const count = Math.max(1, state?.lanes.length || 1)
+  const grid = $('live-grid')
+  const automatic = Math.max(1, Math.floor((grid.clientWidth - 8) / 440))
+  const columns = Math.min(count, state?.columns || automatic)
+  grid.style.setProperty('--live-columns', columns)
+  const rows = Math.min(2, Math.ceil(count / columns))
+  grid.style.setProperty('--live-height', `${Math.max(300, (grid.clientHeight - 16 - (rows - 1) * 8) / rows)}px`)
+}
 
 function notice(message) {
   $('notice').textContent = message
@@ -54,9 +67,12 @@ class TerminalPanel {
     this.el = document.createElement('section')
     this.el.className = 'live-lane'
     this.el.dataset.lane = String(index)
+    this.el.dataset.laneId = lane.id
+    this.el.style.order = String(index)
     const header = document.createElement('header')
     this.title = document.createElement('h2')
     this.title.textContent = lane.name
+    this.title.title = `${lane.name}\n${lane.worktreePath}`
     this.status = document.createElement('span')
     this.status.className = 'status'
     header.append(this.title, this.status)
@@ -84,14 +100,14 @@ class TerminalPanel {
     }
     this.el.append(header, this.host, footer, this.file)
     $('live-grid').append(this.el)
-    const saved = JSON.parse(localStorage.getItem(`live-size-${index}`) || 'null')
+    const saved = savedValue(`live-lane-size:${lane.id}`)
     if (saved?.width >= 340 && saved?.height >= 280) {
       this.el.style.width = `${saved.width}px`
       this.el.style.height = `${saved.height}px`
     }
     this.term = new window.Terminal({
       fontFamily: '"Maple Mono", "Maple Mono NF", "JetBrainsMono Nerd Font", monospace',
-      fontSize: 12, lineHeight: 1.12, cursorBlink: true, scrollback: 10000,
+      fontSize: state?.fontSize || 12, lineHeight: 1.12, cursorBlink: true, scrollback: 10000,
       allowProposedApi: false, convertEol: false, disableStdin: true,
       theme: { background: '#0c0d10', foreground: '#d5d8df', cursor: '#7dd3fc',
         selectionBackground: '#334155', black: '#1b1d24', red: '#f38ba8', green: '#a6e3a1',
@@ -151,13 +167,26 @@ class TerminalPanel {
       clearTimeout(this.resizeTimer)
       this.resizeTimer = setTimeout(() => {
         this.resize(this.host.contains(document.activeElement))
-        if (!this.el.classList.contains('maximized')) {
-          localStorage.setItem(`live-size-${index}`, JSON.stringify({ width: this.el.offsetWidth, height: this.el.offsetHeight }))
+        if (!this.el.classList.contains('maximized') && (this.el.style.width || this.el.style.height)) {
+          saveValue(`live-lane-size:${this.lane.id}`, { width: this.el.offsetWidth, height: this.el.offsetHeight })
         }
       }, 150)
     })
     this.resizeObserver.observe(this.host)
     this.connect()
+  }
+
+  update(lane, index) {
+    const changedTerminal = this.lane.terminal?.handle !== lane.terminal?.handle
+    this.lane = lane
+    this.index = index
+    this.el.dataset.lane = String(index)
+    // CSS order preserves both the saved position and focused DOM node during reconnects.
+    this.el.style.order = String(index)
+    this.title.textContent = lane.name
+    this.title.title = `${lane.name}\n${lane.worktreePath}`
+    this.term.options.fontSize = state.fontSize
+    if (changedTerminal) this.connect()
   }
 
   size() {
@@ -259,22 +288,26 @@ class TerminalPanel {
   }
 }
 
-async function refresh() {
+export async function refresh() {
   if (updating) return
   updating = true
   try {
     state = await api('state')
     $('version').textContent = `v${state.version}`
-    $('connection').textContent = state.paired ? 'Two live terminal views' : 'Pairing needed'
+    $('connection').textContent = state.paired ? `${state.lanes.length} live ${state.lanes.length === 1 ? 'lane' : 'lanes'}` : 'Pairing needed'
     $('connection').className = `connection ${state.paired ? 'online' : ''}`
     if (!state.paired) { if (!$('settings').open && !$('lanes').open) $('settings').showModal(); return }
-    if (state.lanes.length !== 2 && !$('lanes').open) { openLanes(); return }
+    $('empty').hidden = state.lanes.length !== 0
+    const ids = new Set(state.lanes.map(lane => lane.id))
+    for (const [id, panel] of panels) {
+      if (!ids.has(id)) { panel.dispose(); panels.delete(id) }
+    }
     state.lanes.forEach((lane, index) => {
-      const previous = panels.get(index)
-      if (previous?.lane.terminal?.handle === lane.terminal?.handle && previous?.lane.tabId === lane.tabId) return
-      previous?.dispose()
-      panels.set(index, new TerminalPanel(lane, index))
+      const previous = panels.get(lane.id)
+      if (previous) previous.update(lane, index)
+      else panels.set(lane.id, new TerminalPanel(lane, index))
     })
+    layout()
   } catch (error) {
     $('connection').textContent = error.message
     $('connection').className = 'connection error'
@@ -283,19 +316,100 @@ async function refresh() {
 
 function openLanes() {
   if (!state?.paired) return $('settings').showModal()
-  for (const [index, id] of ['left-lane', 'right-lane'].entries()) {
-    const select = $(id)
-    select.replaceChildren()
-    for (const terminal of state.available) {
-      const option = document.createElement('option')
-      option.value = terminal.handle
-      option.textContent = `${terminal.title} · ${terminal.worktreePath || ''}`
-      select.append(option)
-    }
-    select.value = state.lanes[index]?.terminal?.handle || state.available[index]?.handle || ''
-  }
+  laneDraft = state.lanes.map(l => ({ id: l.id, handle: l.terminal?.handle || '', name: l.name, role: l.role, worktreePath: l.worktreePath }))
+  $('layout-columns').value = String(state.columns)
+  $('font-size').value = String(state.fontSize)
+  $('lanes-error').textContent = ''
+  $('terminal-filter').value = ''
+  renderLaneDraft()
   if (!$('lanes').open) $('lanes').showModal()
 }
+
+function renderAvailable() {
+  const selected = new Set(laneDraft.map(l => l.handle))
+  const filter = $('terminal-filter').value.trim().toLowerCase()
+  $('available-terminals').replaceChildren()
+  for (const terminal of state.available) {
+    const title = `${terminal.title} · ${terminal.worktreePath || ''}`
+    if (selected.has(terminal.handle) || !title.toLowerCase().includes(filter)) continue
+    const option = document.createElement('option')
+    option.value = terminal.handle
+    option.textContent = `${title} · ${terminal.tabId.slice(0, 6)}/${terminal.leafId?.slice(0, 6) || ''}`
+    $('available-terminals').append(option)
+  }
+  $('add-lane').disabled = !$('available-terminals').options.length || laneDraft.length >= state.maxLanes
+}
+
+function renderLaneDraft() {
+  $('lane-list').replaceChildren()
+  $('lane-count').textContent = `${laneDraft.length} selected · ordered left to right, then next row`
+  laneDraft.forEach((lane, index) => {
+    const row = document.createElement('div')
+    row.className = 'lane-choice'
+    const number = document.createElement('span')
+    number.className = 'lane-number'
+    number.textContent = String(index + 1)
+    const fields = document.createElement('div')
+    fields.className = 'lane-choice-fields'
+    const name = document.createElement('input')
+    name.value = lane.name
+    name.maxLength = 80
+    name.setAttribute('aria-label', `Lane ${index + 1} name`)
+    name.oninput = () => { lane.name = name.value }
+    const details = document.createElement('small')
+    const terminal = state.available.find(t => t.handle === lane.handle)
+    details.textContent = terminal ? `${terminal.title} · ${terminal.worktreePath} · ${terminal.tabId.slice(0, 6)}/${terminal.leafId?.slice(0, 6) || ''}` : `${lane.worktreePath} · currently unavailable; retained`
+    fields.append(name, details)
+    row.append(number, fields)
+    for (const [label, title, action, disabled] of [
+      ['↑', 'Move lane up', () => { [laneDraft[index - 1], laneDraft[index]] = [laneDraft[index], laneDraft[index - 1]]; renderLaneDraft() }, index === 0],
+      ['↓', 'Move lane down', () => { [laneDraft[index + 1], laneDraft[index]] = [laneDraft[index], laneDraft[index + 1]]; renderLaneDraft() }, index === laneDraft.length - 1],
+      ['×', 'Remove lane from view', () => { laneDraft.splice(index, 1); renderLaneDraft() }, false]
+    ]) {
+      const control = document.createElement('button')
+      control.textContent = label; control.title = title; control.setAttribute('aria-label', title)
+      control.disabled = disabled; control.onclick = action
+      row.append(control)
+    }
+    $('lane-list').append(row)
+  })
+  renderAvailable()
+}
+
+$('terminal-filter').oninput = renderAvailable
+$('add-lane').onclick = () => {
+  const terminal = state.available.find(t => t.handle === $('available-terminals').value)
+  if (!terminal || laneDraft.some(l => l.handle === terminal.handle) || laneDraft.length >= state.maxLanes) return
+  laneDraft.push({ handle: terminal.handle, name: terminal.worktreePath?.split(/[\\/]/).at(-1)?.replace(/^agent-/, '') || terminal.title, role: 'agent' })
+  renderLaneDraft()
+}
+$('import-roster').onclick = async () => {
+  try {
+    const roster = await api('roster')
+    let added = 0, unavailable = 0
+    for (const lane of roster.lanes) {
+      const matches = state.available.filter(t => t.worktreePath === lane.worktreePath && t.tabId === lane.tabId && (!lane.leafId || t.leafId === lane.leafId))
+      if (matches.length !== 1) { unavailable++; continue }
+      if (laneDraft.some(l => l.handle === matches[0].handle)) continue
+      if (laneDraft.length >= state.maxLanes) break
+      laneDraft.push({ handle: matches[0].handle, name: lane.name, role: lane.role })
+      added++
+    }
+    renderLaneDraft()
+    $('lanes-error').textContent = `${added} lanes added to this draft.${unavailable ? ` ${unavailable} unavailable or ambiguous lanes skipped.` : ''} Click Save layout to apply.`
+  } catch (error) { $('lanes-error').textContent = error.message }
+}
+$('reset-sizes').onclick = () => {
+  for (const panel of panels.values()) {
+    saveValue(`live-lane-size:${panel.lane.id}`, null)
+    panel.el.style.width = ''; panel.el.style.height = ''
+    panel.el.classList.remove('maximized')
+  }
+  layout()
+  notice('Tiles reset to the grid size')
+}
+$('empty-manage').onclick = openLanes
+$('refresh').onclick = () => { location.reload() }
 
 $('manage').onclick = async () => { await refresh(); openLanes() }
 $('setup').onclick = () => { if (!$('settings').open) $('settings').showModal() }
@@ -313,11 +427,12 @@ $('pair').onclick = async () => {
 $('save-lanes').onclick = async () => {
   $('save-lanes').disabled = true
   try {
-    await api('config', { handles: [$('left-lane').value, $('right-lane').value] })
+    await api('config', { lanes: laneDraft, columns: Number($('layout-columns').value), fontSize: Number($('font-size').value) })
     $('lanes').close()
     await refresh()
   } catch (error) { $('lanes-error').textContent = error.message } finally { $('save-lanes').disabled = false }
 }
 window.addEventListener('beforeunload', () => { for (const panel of panels.values()) panel.dispose() })
+window.addEventListener('resize', layout)
 void refresh()
 setInterval(refresh, 20000)

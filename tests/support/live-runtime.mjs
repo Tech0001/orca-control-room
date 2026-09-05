@@ -3,13 +3,13 @@ import { WebSocketServer } from 'ws'
 import nacl from 'tweetnacl'
 import { encryptFrame, decryptFrame } from '../../companion/live-rpc.mjs'
 
-export async function fakeRuntime() {
+export async function fakeRuntime({ count = 2 } = {}) {
   const keys = nacl.box.keyPair()
   const token = randomUUID()
   const inputs = []
   const methods = []
   const subscriptions = new Set()
-  const terminals = ['A', 'B'].map(name => ({ handle: `term_test-${name}`, tabId: 'shared-tab', leafId: `leaf-${name}`,
+  const terminals = Array.from({ length: count }, (_, i) => String.fromCharCode(65 + i)).map(name => ({ handle: `term_test-${name}`, tabId: 'shared-tab', leafId: `leaf-${name}`,
     title: `Test ${name}`, worktreePath: '/test/shared-worktree', connected: true, writable: true }))
   const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 })
   await new Promise(resolve => wss.once('listening', resolve))

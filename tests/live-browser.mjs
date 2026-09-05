@@ -8,7 +8,7 @@ import { createServer } from 'node:net'
 import { chromium } from 'playwright'
 import { fakeRuntime } from './support/live-runtime.mjs'
 
-const runtime = await fakeRuntime()
+const runtime = await fakeRuntime({ count: 14 })
 const directory = await mkdtemp(join(tmpdir(), 'control-room-live-browser-'))
 const reservation = createServer()
 await new Promise(resolve => reservation.listen(0, '127.0.0.1', resolve))
@@ -16,14 +16,15 @@ const port = reservation.address().port
 await new Promise(resolve => reservation.close(resolve))
 const token = randomUUID()
 await writeFile(join(directory, 'pairing.json'), JSON.stringify(runtime.pairing), { mode: 0o600 })
-await writeFile(join(directory, 'config.json'), JSON.stringify({ lanes: runtime.terminals.map(t => ({ ...t, name: t.title })) }))
+await writeFile(join(directory, 'config.json'), JSON.stringify({ lanes: runtime.terminals.slice(0, 2).map(t => ({ ...t, name: t.title })) }))
+await writeFile(join(directory, 'original-roster.json'), JSON.stringify({ lanes: runtime.terminals.slice(0, 11).map(t => ({ ...t, name: t.title })) }))
 const server = spawn(process.execPath, ['companion/live-server.mjs', '--port', String(port), '--state-dir', directory, '--token', token], {
-  env: { ...process.env, ORCA_USER_DATA_PATH: directory }, stdio: ['ignore', 'pipe', 'pipe']
+  env: { ...process.env, ORCA_USER_DATA_PATH: directory, ORCA_CONTROL_ROOM_ROSTER_PATH: join(directory, 'original-roster.json') }, stdio: ['ignore', 'pipe', 'pipe']
 })
 let output = ''
 server.stdout.on('data', chunk => { output += chunk })
 server.stderr.on('data', chunk => { output += chunk })
-let browser
+let browser, page
 try {
   for (let i = 0; i < 100; i++) {
     if (output.includes('listening')) break
@@ -31,7 +32,7 @@ try {
     await new Promise(resolve => setTimeout(resolve, 50))
   }
   browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium', headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] })
-  const page = await browser.newPage({ viewport: { width: 1500, height: 950 }, permissions: ['clipboard-read', 'clipboard-write'] })
+  page = await browser.newPage({ viewport: { width: 1500, height: 950 }, permissions: ['clipboard-read', 'clipboard-write'] })
   await page.addInitScript(() => {
     window.addEventListener('keydown', event => {
       if (event.ctrlKey && event.shiftKey && event.code === 'KeyC') window.lastCopyKey = event
@@ -44,7 +45,7 @@ try {
   assert.equal(await page.locator('.xterm').count(), 2)
   const configured = await fetch(`http://127.0.0.1:${port}/api/config`, { method: 'POST',
     headers: { 'x-control-room-token': token, origin: `http://127.0.0.1:${port}` },
-    body: JSON.stringify({ handles: runtime.terminals.map(t => t.handle) }) })
+    body: JSON.stringify({ handles: runtime.terminals.slice(0, 2).map(t => t.handle) }) })
   assert.equal(configured.status, 200, 'Split panes in the same tab remain independently selectable')
   await page.waitForTimeout(250)
   await page.waitForFunction(() => [...document.querySelectorAll('.status')].filter(e => e.textContent === 'Live').length === 2)
@@ -100,6 +101,86 @@ try {
   await page.locator('[data-lane="0"] button[aria-label="Maximize or restore terminal"]').click()
   await page.waitForTimeout(400)
   await page.screenshot({ path: join(directory, 'two-live-terminals.png') })
+  await page.setViewportSize({ width: 2600, height: 1400 })
+  await page.locator('#manage').click()
+  await page.locator('#lanes').waitFor({ state: 'visible' })
+  for (const terminal of runtime.terminals.slice(2, 11)) {
+    await page.locator('#available-terminals').selectOption(terminal.handle)
+    await page.locator('#add-lane').click()
+  }
+  await page.locator('#layout-columns').selectOption('6')
+  await page.locator('#save-lanes').click()
+  await page.waitForFunction(() => document.querySelectorAll('.status.online').length === 11)
+  assert.equal(await page.locator('.xterm').count(), 11, 'All eleven lanes connect, not just the first six')
+  await page.locator('[data-lane="0"]').evaluate(el => { el.style.width = '600px'; el.style.height = '500px' })
+  await page.waitForTimeout(350)
+  const firstId = await page.locator('[data-lane="0"]').getAttribute('data-lane-id')
+  await page.evaluate(() => { window.originalFirstPane = document.querySelector('[data-lane="0"]') })
+  const subscriptionCount = runtime.methods.filter(m => m === 'terminal.subscribe').length
+  await page.locator('#manage').click()
+  await page.locator('#lanes').waitFor({ state: 'visible' })
+  await page.locator('.lane-choice').first().getByRole('button', { name: 'Move lane down', exact: true }).click()
+  await page.locator('.lane-choice input').nth(1).fill('Renamed first agent')
+  await page.locator('#save-lanes').click()
+  await page.waitForTimeout(250)
+  assert.equal(await page.locator('[data-lane="1"]').getAttribute('data-lane-id'), firstId)
+  assert.ok(await page.evaluate(() => window.originalFirstPane === document.querySelector('[data-lane="1"]')), 'Reordering preserves the terminal DOM and scrollback')
+  assert.equal(runtime.methods.filter(m => m === 'terminal.subscribe').length, subscriptionCount, 'Reordering leaves existing streams connected')
+  const aBox = await page.locator('[data-lane="1"]').boundingBox()
+  const bBox = await page.locator('[data-lane="0"]').boundingBox()
+  assert.ok(bBox.x < aBox.x, 'Actual visual order matches the saved roster')
+  runtime.terminals[0].handle = 'term_test-A-restarted'
+  await page.locator('[data-lane="0"] .xterm-helper-textarea').focus()
+  await page.waitForTimeout(1100)
+  await page.evaluate(async () => (await import('/live.js')).refresh())
+  await page.waitForFunction(() => document.querySelectorAll('.status.online').length === 11)
+  assert.ok(await page.evaluate(() => window.originalFirstPane === document.querySelector('[data-lane="1"]')), 'A replaced terminal handle keeps its existing tile and position')
+  assert.ok(await page.locator('[data-lane="0"] .xterm-helper-textarea').evaluate(el => el === document.activeElement), 'Rebinding another lane does not steal focus')
+  await page.reload()
+  await page.waitForFunction(() => document.querySelectorAll('.status.online').length === 11)
+  assert.equal(await page.locator('[data-lane="1"] h2').textContent(), 'Renamed first agent', 'Names and order survive reload')
+  assert.equal(await page.locator('[data-lane="1"]').evaluate(el => el.style.width), '600px', 'Saved sizes follow lane identity after reorder and reload')
+  assert.equal(await page.locator('[data-lane="1"]').evaluate(el => el.style.height), '500px')
+  await page.locator('#reset-sizes').click()
+  await page.waitForTimeout(250)
+  assert.equal(await page.locator('[data-lane="1"]').evaluate(el => el.style.width), '', 'Reset sizes restores the responsive grid')
+  await page.screenshot({ path: join(directory, 'eleven-live-terminals.png') })
+  const expanded = await fetch(`http://127.0.0.1:${port}/api/config`, { method: 'POST',
+    headers: { 'x-control-room-token': token, origin: `http://127.0.0.1:${port}` },
+    body: JSON.stringify({ handles: runtime.terminals.map(t => t.handle) }) })
+  assert.equal(expanded.status, 200)
+  await page.evaluate(async () => (await import('/live.js')).refresh())
+  await page.waitForFunction(() => document.querySelectorAll('.status.online').length === 14)
+  await page.locator('#manage').click()
+  await page.locator('#lanes').waitFor({ state: 'visible' })
+  while (await page.locator('.lane-choice').count()) await page.locator('.lane-choice').last().getByRole('button', { name: 'Remove lane from view', exact: true }).click()
+  await page.locator('#save-lanes').click()
+  await page.waitForFunction(() => document.querySelectorAll('.xterm').length === 0, null, { timeout: 5000 })
+  assert.ok(await page.locator('#empty').isVisible(), 'Empty roster has an actionable empty state')
+  await page.locator('#empty-manage').click()
+  await page.locator('#available-terminals').selectOption(runtime.terminals[1].handle)
+  await page.locator('#add-lane').click()
+  await page.locator('#save-lanes').click()
+  await page.waitForFunction(() => document.querySelectorAll('.status.online').length === 1)
+  assert.equal(await page.locator('.xterm').count(), 1, 'A single lane works after removing the full roster')
+  await page.locator('#manage').click()
+  await page.locator('#lanes').waitFor({ state: 'visible' })
+  await page.locator('#import-roster').click()
+  await page.waitForFunction(() => document.querySelectorAll('.lane-choice').length === 11)
+  await page.locator('[data-close="lanes"]').click()
+  assert.equal(await page.locator('.xterm').count(), 1, 'Cancel does not apply the imported draft')
+  await page.locator('#manage').click()
+  await page.locator('#lanes').waitFor({ state: 'visible' })
+  await page.locator('#import-roster').click()
+  await page.waitForFunction(() => document.querySelectorAll('.lane-choice').length === 11)
+  await page.locator('#layout-columns').selectOption('3')
+  await page.locator('#font-size').fill('11')
+  await page.locator('#save-lanes').click()
+  await page.waitForFunction(() => document.querySelectorAll('.status.online').length === 11)
+  const savedConfig = JSON.parse(await readFile(join(directory, 'config.json'), 'utf8'))
+  assert.equal(savedConfig.columns, 3)
+  assert.equal(savedConfig.fontSize, 11)
+  assert.equal(JSON.parse(await readFile(join(directory, 'original-roster.json'), 'utf8')).lanes.length, 11, 'Import never changes the original roster')
   assert.deepEqual(errors, [])
   const unauthorized = await fetch(`http://127.0.0.1:${port}/api/state`)
   assert.equal(unauthorized.status, 401)
@@ -110,8 +191,13 @@ try {
   await browser.close(); browser = null
   await new Promise(resolve => setTimeout(resolve, 200))
   assert.ok(!runtime.methods.some(m => /close|kill|stop/.test(m)), 'Closing the page must not stop agent terminals')
-  console.log('PASS: two real xterm renderers, safe clipboard shortcuts, raw keys, independent routing, focus, scrollback, reconnect, maximize, authentication, and detach-only cleanup')
+  console.log('PASS: 0/1/2/11/14 lanes, persistent order and naming, safe rebinding, raw keys, clipboard, focus, scrollback, reconnect, maximize, authentication, detach-only cleanup')
   console.log(`Screenshot: ${join(directory, 'two-live-terminals.png')}`)
+  console.log(`Eleven lanes: ${join(directory, 'eleven-live-terminals.png')}`)
+} catch (error) {
+  console.error(await page?.evaluate(() => ({ connection: document.getElementById('connection')?.textContent, dialogError: document.getElementById('lanes-error')?.textContent, draftRows: document.querySelectorAll('.lane-choice').length, tiles: document.querySelectorAll('.xterm').length })))
+  console.error(output)
+  throw error
 } finally {
   await browser?.close()
   server.kill('SIGTERM')
