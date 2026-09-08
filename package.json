@@ -1,6 +1,6 @@
 {
   "name": "orca-control-room-live-terminals",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "private": true,
   "description": "A configurable live-terminal director console for persistent Orca agent lanes.",
   "license": "MIT",

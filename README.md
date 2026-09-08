@@ -100,6 +100,9 @@ show it. Attaching a tile initially observes the current size. Focusing or typin
 claims its dimensions through Orca's viewport coordination. Resizing an unfocused tile does
 not claim the terminal. The original Orca view may reflow when you use the smaller tile.
 
+Focus-in and focus-out notifications are not keystrokes and do not trigger a jump to the
+prompt. Typing and pasting still return to the bottom; normal terminal scrolling is unchanged.
+
 The initial/reconnected scrollback is limited to the snapshot Orca provides. New output is
 retained by xterm up to 10,000 lines. A reconnect replaces that view with a fresh snapshot.
 Unconfirmed input is never automatically replayed; check the native prompt before resending it.

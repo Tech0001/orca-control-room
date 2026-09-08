@@ -3,7 +3,7 @@
   "id": "control-room-live-terminals",
   "publisher": "tech0001",
   "name": "Control Room · Live Terminals",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "An ordered, resizable grid of real terminals for persistent Orca agents. Separate from readable-text Control Room.",
   "engines": {
     "orca": ">=1.4.178"

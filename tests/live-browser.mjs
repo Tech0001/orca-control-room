@@ -34,6 +34,20 @@ try {
   browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium', headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] })
   page = await browser.newPage({ viewport: { width: 1500, height: 950 }, permissions: ['clipboard-read', 'clipboard-write'] })
   await page.addInitScript(() => {
+    // Retain test-only access to xterm's public buffer/scroll API. In xterm 6,
+    // the legacy .xterm-viewport scrollTop no longer measures terminal history.
+    window.testTerminals = []
+    Object.defineProperty(window, 'Terminal', {
+      configurable: true,
+      set(Terminal) {
+        Object.defineProperty(window, 'Terminal', {
+          configurable: true, writable: true,
+          value: class extends Terminal {
+            constructor(...args) { super(...args); window.testTerminals.push(this) }
+          }
+        })
+      }
+    })
     window.addEventListener('keydown', event => {
       if (event.ctrlKey && event.shiftKey && event.code === 'KeyC') window.lastCopyKey = event
     }, true)
@@ -87,11 +101,70 @@ try {
   assert.ok(await right.evaluate(el => el === document.activeElement), 'Other lane output must not steal focus')
   runtime.output('term_test-B', Array.from({ length: 120 }, (_, i) => `\r\nHistory line ${i}`).join(''))
   await page.waitForTimeout(150)
-  const viewport = page.locator('[data-lane="1"] .xterm-viewport')
-  await viewport.evaluate(el => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')) })
+  const scrollPosition = () => page.evaluate(() => window.testTerminals[1].buffer.active.viewportY)
+  const readHistory = async () => {
+    await page.evaluate(() => window.testTerminals[1].scrollToTop())
+    await page.waitForTimeout(150)
+    assert.equal(await scrollPosition(), 0, 'The terminal is at the start of its actual history buffer')
+  }
+  await readHistory()
   runtime.output('term_test-B', '\r\nFresh output while reading history')
   await page.waitForTimeout(150)
-  assert.ok(await viewport.evaluate(el => el.scrollTop < 100), 'New output preserves scrolled reading position')
+  assert.equal(await scrollPosition(), 0, 'New output preserves scrolled reading position')
+  // Real TUIs enable DECSET 1004: focus/blur arrive on xterm.onData just
+  // like keystrokes, but must not trigger an input-driven jump to the bottom.
+  await left.focus()
+  runtime.output('term_test-B', '\x1b[?1004h')
+  await page.waitForTimeout(250)
+  await readHistory()
+  const readingTop = await scrollPosition()
+  const focusRequestStart = runtime.requests.length
+  const historyScreen = await page.locator('[data-lane="1"] .xterm-screen').boundingBox()
+  const historyCols = parseInt(await page.locator('[data-lane="1"] footer span').first().textContent(), 10)
+  await page.mouse.move(historyScreen.x + 1, historyScreen.y + 6)
+  await page.mouse.down()
+  await page.waitForTimeout(150)
+  assert.ok(await right.evaluate(el => el === document.activeElement), 'Clicking history still focuses the terminal for typing')
+  assert.equal(await scrollPosition(), readingTop, 'Focus must not jump away from the text being selected')
+  await page.mouse.move(historyScreen.x + historyScreen.width / historyCols * 4, historyScreen.y + 6, { steps: 5 })
+  await page.mouse.up()
+  await page.keyboard.press('Control+Shift+C')
+  await page.waitForTimeout(100)
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'LIVE', 'Dragging after focus selects the original history text')
+  await left.focus()
+  await page.waitForTimeout(150)
+  assert.equal(await scrollPosition(), readingTop, 'Leaving a terminal must also preserve its reading position')
+  const focusRequests = runtime.requests.slice(focusRequestStart)
+  assert.ok(focusRequests.some(r => r.method === 'terminal.send' && r.params.text === '\x1b[I'), 'Focus-in still reaches the native TUI')
+  assert.ok(focusRequests.some(r => r.method === 'terminal.send' && r.params.text === '\x1b[O'), 'Focus-out still reaches the native TUI')
+  assert.ok(focusRequests.filter(r => r.method === 'terminal.send').every(r => r.params.claimViewport !== true), 'Focus notifications are not sent as keystrokes')
+  await right.focus()
+  await page.waitForTimeout(150)
+  assert.equal(await scrollPosition(), readingTop, 'Refocusing alone still preserves history')
+  const typingRequestStart = runtime.requests.length
+  await page.keyboard.type('typing-resumes')
+  await page.waitForTimeout(150)
+  assert.equal(await scrollPosition(), await page.evaluate(() => window.testTerminals[1].buffer.active.baseY), 'Actual typing still returns to the live prompt')
+  assert.ok(runtime.requests.slice(typingRequestStart).some(r => r.method === 'terminal.send' && r.params.claimViewport === true && r.params.text === 't'), 'Typing still claims the pane dimensions')
+  await readHistory()
+  await right.evaluate(el => {
+    const clipboardData = new DataTransfer()
+    clipboardData.setData('text/plain', 'pasted-at-prompt')
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }))
+  })
+  await page.waitForTimeout(150)
+  assert.equal(await scrollPosition(), await page.evaluate(() => window.testTerminals[1].buffer.active.baseY), 'Pasting still returns to the live prompt')
+  assert.ok(runtime.requests.some(r => r.method === 'terminal.send' && r.params.text === 'pasted-at-prompt' && r.params.claimViewport === true), 'Paste reaches the agent as real input')
+  const wheelScreen = await page.locator('[data-lane="1"] .xterm-screen').boundingBox()
+  await page.mouse.move(wheelScreen.x + 80, wheelScreen.y + 40)
+  await page.mouse.wheel(0, -400)
+  await page.waitForTimeout(250)
+  assert.ok(await scrollPosition() < await page.evaluate(() => window.testTerminals[1].buffer.active.baseY), 'Mouse wheel can still scroll up through terminal history')
+  await page.mouse.wheel(0, 10000)
+  await page.waitForTimeout(250)
+  assert.equal(await scrollPosition(), await page.evaluate(() => window.testTerminals[1].buffer.active.baseY), 'Mouse wheel can still scroll back down to the prompt')
+  runtime.output('term_test-B', '\x1b[?1004l')
+  await page.waitForTimeout(150)
   runtime.disconnectStreams()
   await page.waitForTimeout(250)
   await page.waitForFunction(() => [...document.querySelectorAll('.status')].filter(e => e.textContent === 'Live').length === 2, { timeout: 10000 })
@@ -237,7 +310,7 @@ try {
   await browser.close(); browser = null
   await new Promise(resolve => setTimeout(resolve, 200))
   assert.ok(!runtime.methods.some(m => /close|kill|stop/.test(m)), 'Closing the page must not stop agent terminals')
-  console.log('PASS: 0/1/2/11/14 lanes, persistent order and naming, safe rebinding, raw keys, clipboard, focus, scrollback, reconnect, unavailable lanes, native recovery, outage recovery, maximize, authentication, detach-only cleanup')
+  console.log('PASS: 0/1/2/11/14 lanes, persistent order and naming, safe rebinding, raw keys, clipboard, focus/blur selection, typing/paste scroll, scrollback, reconnect, unavailable lanes, native recovery, outage recovery, maximize, authentication, detach-only cleanup')
   console.log(`Screenshot: ${join(directory, 'two-live-terminals.png')}`)
   console.log(`Eleven lanes: ${join(directory, 'eleven-live-terminals.png')}`)
 } catch (error) {

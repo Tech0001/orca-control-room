@@ -24,6 +24,11 @@ test('raw keys remain input, query replies are separate, paste chunks preserve U
   assert.ok(chunks.every(s => s.length <= 16000))
 })
 
+test('focus reports are terminal notifications, not keystrokes', () => {
+  for (const report of ['\x1b[I', '\x1b[O', '\x1b[I\x1b[O']) assert.equal(isQueryReply(report), true)
+  for (const input of ['I', 'O', '\x1b[A', '\x1b[Ihello', '\x1b[1I']) assert.equal(isQueryReply(input), false)
+})
+
 test('two authenticated streams stay independent and closing viewers does not close terminals', async t => {
   const runtime = await fakeRuntime()
   t.after(() => runtime.close())
